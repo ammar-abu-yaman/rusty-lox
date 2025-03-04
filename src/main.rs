@@ -18,10 +18,6 @@ fn main() {
                 writeln!(io::stderr(), "Failed to read file {}", filename).unwrap();
                 String::new()
             });
-            
-            if file_contents.is_empty() {
-                return;
-            }
 
             file_contents.chars().for_each(|c| match c {
                 '(' => println!("LEFT_PAREN ( null"),
