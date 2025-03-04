@@ -18,12 +18,19 @@ fn main() {
                 writeln!(io::stderr(), "Failed to read file {}", filename).unwrap();
                 String::new()
             });
-
-            if !file_contents.is_empty() {
-                panic!("Scanner not implemented");
-            } else {
-                println!("EOF  null"); // Placeholder, remove this line when implementing the scanner
+            
+            if file_contents.is_empty() {
+                return;
             }
+
+            file_contents.chars().for_each(|c| match c {
+                '(' => println!("LEFT_PAREN ( null"),
+                ')' => println!("RIGHT_PAREN ) null"),
+                _ => {},
+            });
+
+            println!("EOF  null"); // Placeholder, remove this line when implementing the scanner
+
         }
         _ => {
             writeln!(io::stderr(), "Unknown command: {}", command).unwrap();
