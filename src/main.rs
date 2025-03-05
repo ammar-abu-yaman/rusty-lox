@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::io::{self, Write};
+use std::process::exit;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -19,6 +20,8 @@ fn main() {
                 String::new()
             });
             
+            let mut line: u64 = 1;
+            let mut has_errors = false;
             file_contents.chars().for_each(|c| match c {
                 '(' => println!("LEFT_PAREN ( null"),
                 ')' => println!("RIGHT_PAREN ) null"),
@@ -30,9 +33,17 @@ fn main() {
                 '*' => println!("STAR * null"),
                 ',' => println!("COMMA , null"),
                 ';' => println!("SEMICOLON ; null"),
-                _ => {},
+                ' ' | '\t' | '\r' => {},
+                '\n' => line += 1,
+                unexpected => {
+                    eprintln!("[line {line}] Error: Unexpected character: {unexpected}");
+                    has_errors = true;
+                }
             });
             println!("EOF  null");
+            if has_errors { 
+                exit(65);
+            }
         }
         _ => {
             writeln!(io::stderr(), "Unknown command: {}", command).unwrap();
