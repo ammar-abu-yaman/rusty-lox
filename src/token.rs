@@ -15,4 +15,6 @@ pub struct TokenPosition {
 pub enum TokenType {
     LeftParen,
     RightParen,
+    LeftBrace,
+    RightBrace,
 }
