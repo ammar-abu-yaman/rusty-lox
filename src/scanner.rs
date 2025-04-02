@@ -48,6 +48,8 @@ impl <R: PeekRead + Seek> Scanner<R> {
                 ';' => token(SemiColon, ";", self.line),
                 '=' if self.matchup('=') => token(Equal, "==", self.line),
                 '=' => token(Asign, "=", self.line),
+                '!' if self.matchup('=') => token(NotEqual, "!=", self.line),
+                '!' => token(Not, "!", self.line),
                 '\n' => {
                     self.line += 1;
                     continue;

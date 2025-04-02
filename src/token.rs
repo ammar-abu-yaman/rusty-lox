@@ -48,8 +48,10 @@ pub enum TokenType {
     SemiColon,
     Star,
     Comma,
+    Not,
     Asign,
     Equal,
+    NotEqual,
     Eof,
     Unkown,
 }
@@ -71,6 +73,8 @@ impl TokenType {
             TokenType::Equal => "EQUAL_EQUAL",
             TokenType::Eof => "EOF",
             TokenType::Unkown => "UNKOWN",
+            TokenType::Not => "BANG",
+            TokenType::NotEqual => "BANG_EQUAL",
         }
     }
 }
