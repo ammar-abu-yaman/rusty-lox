@@ -72,6 +72,7 @@ impl <R: PeekRead + Seek> Scanner<R> {
                 }),
                 d @ '0'..='9' => return self.number(d),
                 '\n' => continue,
+                c @ ('a'..='z' | 'A'..='Z' | '_') => return self.identifier(c),
                 c if c.is_whitespace() => continue,
                 c => {
                     self.has_error = true;
@@ -112,6 +113,20 @@ impl <R: PeekRead + Seek> Scanner<R> {
             }
         }
         Ok(Token::number(lexeme, self.line))
+    }
+
+    pub fn identifier(&mut self, first: char) -> Result<Token> {
+        let mut lexeme = first.to_string();
+        loop {
+            match self.peek() {
+                Some(c ) if c.is_ascii_alphanumeric() || c == '_' => {
+                    lexeme.push(c);
+                    self.advance();
+                },
+                _ => break,
+            }
+        }
+        Ok(Token::textual(lexeme, self.line))
     }
 
     pub fn string(&mut self) -> Result<Token> {

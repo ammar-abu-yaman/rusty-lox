@@ -21,6 +21,10 @@ impl Token {
         Self::new(token_type, lexeme.into(), Literal::NoValue, line)
     }
 
+    pub fn textual(value: impl Into<String>, line: u64) -> Self {
+        Self::new(TokenType::Identifier, value.into(), Literal::NoValue, line)
+    }
+
     pub fn string(value: impl Into<String>, line: u64) -> Self {
         let value= value.into();
         Self::new(TokenType::String, format!("\"{}\"", value), Literal::String(value), line)
@@ -62,6 +66,7 @@ pub enum TokenType {
     Greater,
     GreaterEq,
     String,
+    Identifier,
     Number,
     Div,
     Eof,

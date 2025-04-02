@@ -45,6 +45,7 @@ pub const fn token_name(token: &Token) -> &'static str {
         GreaterEq => "GREATER_EQUAL",
         Div => "SLASH",
         String => "STRING",
-        Number => "NUMBER"
+        Number => "NUMBER",
+        Identifier => "IDENTIFIER",
     }
 }
