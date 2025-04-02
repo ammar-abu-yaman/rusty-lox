@@ -54,10 +54,12 @@ impl <R: PeekRead + Seek> Scanner<R> {
                 '<' => token(Less, "<", self.line),
                 '>' if self.matchup('=') => token(GreaterEq, ">=", self.line),
                 '>' => token(Greater, ">", self.line),
-                '\n' => {
-                    self.line += 1;
+                '/' if self.matchup('/') => {
+                    self.read_line()?;
                     continue;
                 },
+                '/' => token(Div, "/", self.line),
+                '\n' => continue,
                 c if c.is_whitespace() => continue,
                 c @ _ => token(Unkown, &c.to_string(), self.line)
             };
@@ -69,7 +71,21 @@ impl <R: PeekRead + Seek> Scanner<R> {
     pub fn advance(&mut self) -> Option<Result<u8>> {
         let c = (&mut self.reader).bytes().next();
         self.current += 1;
+        if matches!(c, Some(Ok(b'\n'))) {
+            self.line += 1;
+        }
         c
+    }
+
+    pub fn read_line(&mut self) -> Result<String> {
+        let mut s = String::new();
+        while let Some(b) = self.advance() {
+            if matches!(b, Ok(b'\n')) {
+                break;
+            }
+            s.push(b? as char);
+        }
+        Ok(s)
     }
 
     pub fn matchup(&mut self, c: char) -> bool {

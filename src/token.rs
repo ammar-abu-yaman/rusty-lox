@@ -56,6 +56,7 @@ pub enum TokenType {
     LessEq,
     Greater,
     GreaterEq,
+    Div,
     Eof,
     Unkown,
 }
@@ -83,6 +84,7 @@ impl TokenType {
             TokenType::LessEq => "LESS_EQUAL",
             TokenType::Greater => "GREATER",
             TokenType::GreaterEq => "GREATER_EQUAL",
+            TokenType::Div => "SLASH",
         }
     }
 }
