@@ -1,14 +1,14 @@
-use std::{io::{Read, Result, Seek}, result};
+use std::io::{self, Read, Result, Seek};
 
 use peekread::PeekRead;
 
-use crate::token::{Token, TokenType};
+use crate::{log, token::{Token, TokenType}};
 
 pub struct Scanner<R: PeekRead + Seek> {
     reader: R,
     current: u64,
     line: u64,
-
+    has_error: bool,
 }
 
 impl <R: PeekRead + Seek> Scanner<R> {
@@ -17,6 +17,7 @@ impl <R: PeekRead + Seek> Scanner<R> {
             reader,
             current: 0,
             line: 1,
+            has_error: false,
         }
     }
 }
@@ -24,6 +25,12 @@ impl <R: PeekRead + Seek> Scanner<R> {
 impl <R: PeekRead + Seek> From<R> for Scanner<R> {
     fn from(reader: R) -> Self {
         Scanner::<R>::new(reader)
+    }
+}
+
+impl <R: PeekRead + Seek> Scanner<R> {
+    pub fn has_error(&self) -> bool {
+        return self.has_error
     }
 }
 
@@ -36,32 +43,40 @@ impl <R: PeekRead + Seek> Scanner<R> {
             }
             use TokenType::*;
             let token = match byte.unwrap()? as char {
-                '(' => token(LeftParen, "(", self.line),
-                ')' => token(RightParen, ")", self.line),
-                '{' => token(LeftBrace, "{", self.line),
-                '}' => token(RightBrace, "}", self.line),
-                '+' => token(Plus, "+", self.line),
-                '-' => token(Minus, "-", self.line),
-                '.' => token(Dot, ".", self.line),
-                '*' => token(Star, "*", self.line),
-                ',' => token(Comma, ",", self.line),
-                ';' => token(SemiColon, ";", self.line),
-                '=' if self.matchup('=') => token(Equal, "==", self.line),
-                '=' => token(Asign, "=", self.line),
-                '!' if self.matchup('=') => token(NotEqual, "!=", self.line),
-                '!' => token(Not, "!", self.line),
-                '<' if self.matchup('=') => token(LessEq, "<=", self.line),
-                '<' => token(Less, "<", self.line),
-                '>' if self.matchup('=') => token(GreaterEq, ">=", self.line),
-                '>' => token(Greater, ">", self.line),
+                '(' => Token::symbol(LeftParen, "(", self.line),
+                ')' => Token::symbol(RightParen, ")", self.line),
+                '{' => Token::symbol(LeftBrace, "{", self.line),
+                '}' => Token::symbol(RightBrace, "}", self.line),
+                '+' => Token::symbol(Plus, "+", self.line),
+                '-' => Token::symbol(Minus, "-", self.line),
+                '.' => Token::symbol(Dot, ".", self.line),
+                '*' => Token::symbol(Star, "*", self.line),
+                ',' => Token::symbol(Comma, ",", self.line),
+                ';' => Token::symbol(SemiColon, ";", self.line),
+                '=' if self.matchup('=') => Token::symbol(Equal, "==", self.line),
+                '=' => Token::symbol(Asign, "=", self.line),
+                '!' if self.matchup('=') => Token::symbol(NotEqual, "!=", self.line),
+                '!' => Token::symbol(Not, "!", self.line),
+                '<' if self.matchup('=') => Token::symbol(LessEq, "<=", self.line),
+                '<' => Token::symbol(Less, "<", self.line),
+                '>' if self.matchup('=') => Token::symbol(GreaterEq, ">=", self.line),
+                '>' => Token::symbol(Greater, ">", self.line),
                 '/' if self.matchup('/') => {
                     self.read_line()?;
                     continue;
                 },
-                '/' => token(Div, "/", self.line),
+                '/' => Token::symbol(Div, "/", self.line),
+                '"' => self.string().unwrap_or_else(|_| { 
+                    self.has_error = true;
+                    Token::eof() 
+                }),
                 '\n' => continue,
                 c if c.is_whitespace() => continue,
-                c @ _ => token(Unkown, &c.to_string(), self.line)
+                c => {
+                    self.has_error = true;
+                    log::error_unkown_symbol(self.line, c);
+                    continue;
+                }
             };
             return Ok(token);
         }
@@ -70,11 +85,31 @@ impl <R: PeekRead + Seek> Scanner<R> {
 
     pub fn advance(&mut self) -> Option<Result<u8>> {
         let c = (&mut self.reader).bytes().next();
+        if c.is_none() {
+            return c;
+        }
         self.current += 1;
         if matches!(c, Some(Ok(b'\n'))) {
             self.line += 1;
         }
         c
+    }
+
+    pub fn string(&mut self) -> Result<Token> {
+        let mut s = String::new();
+        loop {
+            match self.advance() {
+                Some(Ok(b'"')) => break,
+                Some(Ok(b)) => s.push(b as char),
+                Some(Err(e)) => return Err(e),
+                None => {
+                    log::error(self.line, "Unterminated string.");
+                    self.has_error = true;
+                    return Err(std::io::Error::new(io::ErrorKind::InvalidInput, "Invalid Input"))
+                },
+            }
+        }
+        Ok(Token::string(s, self.line))
     }
 
     pub fn read_line(&mut self) -> Result<String> {
@@ -104,9 +139,4 @@ impl <R: PeekRead + Seek> Scanner<R> {
             Some(Ok(c)) => Some(c as char)
         }
     }
-}
-
-
-fn token(tt: TokenType, lexeme: &str, line: u64) -> Token {
-    Token::new(tt, lexeme.to_string(), line)
 }

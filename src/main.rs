@@ -1,13 +1,10 @@
 use std::env;
 use std::fs::File;
-use std::io::BufReader;
 use std::io::{self, Write};
 use std::process::exit;
 
-use log::lex_error;
-use peekread::{BufPeekReader, SeekPeekReader};
+use peekread::SeekPeekReader;
 use scanner::Scanner;
-use token::Token;
 use token::TokenType;
 
 mod token;
@@ -26,24 +23,19 @@ fn main() -> io::Result<()> {
 
     match command.as_str() {
         "tokenize" => {            
-            let mut has_errors = false;
             let file = File::open(filename)?;
             let mut scanner = Scanner::new(SeekPeekReader::new(file));
+            let mut tokens = vec![];
+
             loop {
                 let token = scanner.next()?;
-                match token.token_type {
-                    TokenType::Unkown => {
-                        lex_error(&token);
-                        has_errors = true;
-                    }
-                    TokenType::Eof => {
-                        println!("{}", token.to_token_string());
-                        break;
-                    }
-                    _ => println!("{}", token.to_token_string()),
+                tokens.push(token);
+                if tokens.last().unwrap().token_type == TokenType::Eof {
+                    break;
                 }
             }
-            if has_errors { 
+            tokens.iter().for_each(log::token);
+            if scanner.has_error() { 
                 exit(65);
             }
         }
