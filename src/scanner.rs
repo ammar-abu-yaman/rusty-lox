@@ -70,6 +70,7 @@ impl <R: PeekRead + Seek> Scanner<R> {
                     self.has_error = true;
                     Token::eof() 
                 }),
+                d @ '0'..='9' => return self.number(d),
                 '\n' => continue,
                 c if c.is_whitespace() => continue,
                 c => {
@@ -93,6 +94,24 @@ impl <R: PeekRead + Seek> Scanner<R> {
             self.line += 1;
         }
         c
+    }
+
+    pub fn number(&mut self, first: char) -> Result<Token> {
+        let mut lexeme = first.to_string();
+        loop {
+            match self.peek() {
+                Some(d @  '0'..='9') => {
+                    lexeme.push(d);
+                    self.advance();
+                },
+                Some('.') if matches!(self.peek_offset(1), Some('0'..='9')) => {
+                    lexeme.push('.');
+                    self.advance();
+                }
+                _ => break,
+            }
+        }
+        Ok(Token::number(lexeme, self.line))
     }
 
     pub fn string(&mut self) -> Result<Token> {
@@ -134,6 +153,14 @@ impl <R: PeekRead + Seek> Scanner<R> {
 
     pub fn peek(&mut self) -> Option<char> {
         match (&mut self.reader).peek().bytes().next() {
+            None => None,
+            Some(Err(_)) => None,
+            Some(Ok(c)) => Some(c as char)
+        }
+    }
+
+    pub fn peek_offset(&mut self, offset: u64) -> Option<char> {
+        match (&mut self.reader).peek().bytes().skip(offset as usize).next() {
             None => None,
             Some(Err(_)) => None,
             Some(Ok(c)) => Some(c as char)

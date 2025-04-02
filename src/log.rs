@@ -1,4 +1,4 @@
-use crate::token::{Token, TokenType};
+use crate::token::{Literal, Token, TokenType};
 
 pub fn error_unkown_symbol(line: u64, s: impl Into<String>) {
     eprintln!("[line {}] Error: Unexpected character: {}", line, s.into());
@@ -13,9 +13,11 @@ pub fn token(token: &Token) {
 }
 
 pub fn token_value(token: &Token) -> String {
+    use Literal::*;
     match &token.literal {
-        crate::token::Literal::String(s) => s.clone(),
-        crate::token::Literal::NoValue => "null".to_string(),
+        String(s) => s.clone(),
+        Number(n) => format!("{n:?}"), 
+        NoValue => "null".to_string(),
     }
 }
 
@@ -43,5 +45,6 @@ pub const fn token_name(token: &Token) -> &'static str {
         GreaterEq => "GREATER_EQUAL",
         Div => "SLASH",
         String => "STRING",
+        Number => "NUMBER"
     }
 }

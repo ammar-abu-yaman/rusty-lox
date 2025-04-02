@@ -25,6 +25,12 @@ impl Token {
         let value= value.into();
         Self::new(TokenType::String, format!("\"{}\"", value), Literal::String(value), line)
     }
+
+    pub fn number(value: impl Into<String>, line: u64) -> Self {
+        let value = value.into();
+        let n = value.parse().unwrap();
+        Self::new(TokenType::Number, value, Literal::Number(n), line)
+    }
     
     pub fn eof() -> Self {
         Self::new(TokenType::Eof, "", Literal::NoValue, 0)
@@ -56,6 +62,7 @@ pub enum TokenType {
     Greater,
     GreaterEq,
     String,
+    Number,
     Div,
     Eof,
 }
@@ -63,5 +70,6 @@ pub enum TokenType {
 #[derive(Debug, PartialEq, Clone, PartialOrd)]
 pub enum Literal {
     String(String),
+    Number(f64),
     NoValue,
 }
