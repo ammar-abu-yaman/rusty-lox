@@ -1,53 +1,60 @@
 use std::env;
-use std::fs;
+use std::fs::File;
+use std::io::BufReader;
 use std::io::{self, Write};
 use std::process::exit;
 
-fn main() {
+use peekread::{BufPeekReader, SeekPeekReader};
+use scanner::Scanner;
+use token::Token;
+use token::TokenType;
+
+mod token;
+mod scanner;
+
+fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
         writeln!(io::stderr(), "Usage: {} tokenize <filename>", args[0]).unwrap();
-        return;
+        return Ok(());
     }
 
     let command = &args[1];
     let filename = &args[2];
 
     match command.as_str() {
-        "tokenize" => {
-            let file_contents = fs::read_to_string(filename).unwrap_or_else(|_| {
-                writeln!(io::stderr(), "Failed to read file {}", filename).unwrap();
-                String::new()
-            });
-            
-            let mut line: u64 = 1;
+        "tokenize" => {            
             let mut has_errors = false;
-            file_contents.chars().for_each(|c| match c {
-                '(' => println!("LEFT_PAREN ( null"),
-                ')' => println!("RIGHT_PAREN ) null"),
-                '{' => println!("LEFT_BRACE {{ null"),
-                '}' => println!("RIGHT_BRACE }} null"),
-                '+' => println!("PLUS + null"),
-                '-' => println!("MINUS - null"),
-                '.' => println!("DOT . null"),
-                '*' => println!("STAR * null"),
-                ',' => println!("COMMA , null"),
-                ';' => println!("SEMICOLON ; null"),
-                ' ' | '\t' | '\r' => {},
-                '\n' => line += 1,
-                unexpected => {
-                    eprintln!("[line {line}] Error: Unexpected character: {unexpected}");
-                    has_errors = true;
+            let file = File::open(filename)?;
+            let mut scanner = Scanner::new(SeekPeekReader::new(file));
+            loop {
+                let token = scanner.next()?;
+                match token.token_type {
+                    TokenType::Unkown => {
+                        lex_error(&token);
+                        has_errors = true;
+                    }
+                    TokenType::Eof => {
+                        println!("{}", token.to_token_string());
+                        break;
+                    }
+                    _ => println!("{}", token.to_token_string()),
                 }
-            });
-            println!("EOF  null");
+            }
             if has_errors { 
                 exit(65);
             }
         }
         _ => {
             writeln!(io::stderr(), "Unknown command: {}", command).unwrap();
-            return;
+            return Ok(());
         }
     }
+    
+    return Ok(());
+}
+
+
+fn lex_error(token: &Token) {
+    eprintln!("[line {}] Error: Unexpected character: {}", token.pos.line, token.lexeme);
 }

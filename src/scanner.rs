@@ -1,31 +1,33 @@
-use std::io::{Read, Seek, Result};
+use std::{io::{Read, Result, Seek}, result};
+
+use peekread::PeekRead;
 
 use crate::token::{Token, TokenType};
 
-pub struct Scanner<R: Read + Seek> {
+pub struct Scanner<R: PeekRead + Seek> {
     reader: R,
     current: u64,
     line: u64,
 
 }
 
-impl <R: Read + Seek> Scanner<R> {
+impl <R: PeekRead + Seek> Scanner<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader,
             current: 0,
-            line: 0,
+            line: 1,
         }
     }
 }
 
-impl <R: Read + Seek> From<R> for Scanner<R> {
+impl <R: PeekRead + Seek> From<R> for Scanner<R> {
     fn from(reader: R) -> Self {
         Scanner::<R>::new(reader)
     }
 }
 
-impl <R: Read + Seek> Scanner<R> {
+impl <R: PeekRead + Seek> Scanner<R> {
     pub fn next(&mut self) -> Result<Token> {
         loop {
             let byte = self.advance();
@@ -44,12 +46,13 @@ impl <R: Read + Seek> Scanner<R> {
                 '*' => token(Star, "*", self.line),
                 ',' => token(Comma, ",", self.line),
                 ';' => token(SemiColon, ";", self.line),
-                '=' if self.equals('=') => token(Equal, "==", self.line),
-                '=' => token(Equal, "==", self.line),
+                '=' if self.matchup('=') => token(Equal, "==", self.line),
+                '=' => token(Asign, "=", self.line),
                 '\n' => {
                     self.line += 1;
                     continue;
                 },
+                c if c.is_whitespace() => continue,
                 c @ _ => token(Unkown, &c.to_string(), self.line)
             };
             return Ok(token);
@@ -63,15 +66,22 @@ impl <R: Read + Seek> Scanner<R> {
         c
     }
 
-    pub fn equals(&mut self, c: char) -> bool {
-        matches!(
-            (&mut self.reader).bytes().peekable().peek().map(|res| res.as_ref().cloned().map(|b| b as char))
-        , Some(Ok(c)))
+    pub fn matchup(&mut self, c: char) -> bool {
+        if self.peek() == Some(c) {
+            self.advance();
+            true
+        } else {
+            false
+        }
     }
 
-    // pub fn peek(&mut self) -> Option<Result<u8>> {
-    //    return  self.reader.bytes().peekable().peek().map(|result| result.map(|b| b.clone()));
-    // }
+    pub fn peek(&mut self) -> Option<char> {
+        match (&mut self.reader).peek().bytes().next() {
+            None => None,
+            Some(Err(_)) => None,
+            Some(Ok(c)) => Some(c as char)
+        }
+    }
 }
 
 

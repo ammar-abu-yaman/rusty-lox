@@ -20,8 +20,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "peekread",
  "thiserror",
 ]
+
+[[package]]
+name = "peekread"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "978122cdc72f39ed3c6343907453570570699169aace43dd09d46b52cc5f681d"
 
 [[package]]
 name = "proc-macro2"
