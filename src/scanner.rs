@@ -50,6 +50,10 @@ impl <R: PeekRead + Seek> Scanner<R> {
                 '=' => token(Asign, "=", self.line),
                 '!' if self.matchup('=') => token(NotEqual, "!=", self.line),
                 '!' => token(Not, "!", self.line),
+                '<' if self.matchup('=') => token(LessEq, "<=", self.line),
+                '<' => token(Less, "<", self.line),
+                '>' if self.matchup('=') => token(GreaterEq, ">=", self.line),
+                '>' => token(Greater, ">", self.line),
                 '\n' => {
                     self.line += 1;
                     continue;

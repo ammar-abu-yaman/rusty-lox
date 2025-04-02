@@ -52,6 +52,10 @@ pub enum TokenType {
     Asign,
     Equal,
     NotEqual,
+    Less,
+    LessEq,
+    Greater,
+    GreaterEq,
     Eof,
     Unkown,
 }
@@ -75,6 +79,10 @@ impl TokenType {
             TokenType::Unkown => "UNKOWN",
             TokenType::Not => "BANG",
             TokenType::NotEqual => "BANG_EQUAL",
+            TokenType::Less => "LESS",
+            TokenType::LessEq => "LESS_EQUAL",
+            TokenType::Greater => "GREATER",
+            TokenType::GreaterEq => "GREATER_EQUAL",
         }
     }
 }
