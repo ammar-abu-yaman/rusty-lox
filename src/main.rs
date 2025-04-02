@@ -4,6 +4,7 @@ use std::io::BufReader;
 use std::io::{self, Write};
 use std::process::exit;
 
+use log::lex_error;
 use peekread::{BufPeekReader, SeekPeekReader};
 use scanner::Scanner;
 use token::Token;
@@ -11,6 +12,7 @@ use token::TokenType;
 
 mod token;
 mod scanner;
+mod log;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -55,6 +57,5 @@ fn main() -> io::Result<()> {
 }
 
 
-fn lex_error(token: &Token) {
-    eprintln!("[line {}] Error: Unexpected character: {}", token.pos.line, token.lexeme);
-}
+
+
