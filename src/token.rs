@@ -1,4 +1,4 @@
-
+use std::collections::HashMap;
 
 pub struct Token {
     pub token_type: TokenType,
@@ -22,7 +22,8 @@ impl Token {
     }
 
     pub fn textual(value: impl Into<String>, line: u64) -> Self {
-        Self::new(TokenType::Identifier, value.into(), Literal::NoValue, line)
+        let value = value.into();
+        Self::new(identifier_type(&value), value, Literal::NoValue, line)
     }
 
     pub fn string(value: impl Into<String>, line: u64) -> Self {
@@ -69,6 +70,22 @@ pub enum TokenType {
     Identifier,
     Number,
     Div,
+    And, 
+    Class, 
+    Else, 
+    False, 
+    For, 
+    Fun, 
+    If, 
+    Nil, 
+    Or, 
+    Print, 
+    Return, 
+    Super, 
+    This, 
+    True, 
+    Var, 
+    While,
     Eof,
 }
 
@@ -77,4 +94,27 @@ pub enum Literal {
     String(String),
     Number(f64),
     NoValue,
+}
+
+pub fn identifier_type(s: &str) -> TokenType {
+    use TokenType::*;
+    match s {
+        "and" => And,
+        "class" => Class,
+        "else" => Else,
+        "false" => False,
+        "for" => For,
+        "fun" => Fun,
+        "if" => If,
+        "nil" => Nil,
+        "or" => Or,
+        "print" => Print,
+        "return" => Return,
+        "super" => Super,
+        "this" => This,
+        "true" => True,
+        "var" => Var,
+        "while" => While,   
+        _ => Identifier,
+    }
 }
