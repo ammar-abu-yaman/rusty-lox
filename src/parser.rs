@@ -1,4 +1,4 @@
-use crate::{syntax::{Ast, Expr}, token::{Token, TokenType}};
+use crate::{syntax::{Ast, Expr}, token::{Literal, Token, TokenType}};
 use std::{io::Result, usize};
 
 pub trait LoxParser {
@@ -39,6 +39,7 @@ impl RecursiveDecendantParser {
             Some(Token { token_type: Nil, .. }) => Expr::Nil,
             Some(Token { token_type: True, .. }) => Expr::Bool(true),
             Some(Token { token_type: False, .. }) => Expr::Bool(false),
+            Some(Token { token_type: Number, literal: Literal::Number(n), ..}) => Expr::Number(n),
             _ => panic!("Expected True, False or Nil")
         }
     }

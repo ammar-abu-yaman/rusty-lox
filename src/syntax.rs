@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{write, Display};
 
 use crate::token::{Token, TokenType};
 
@@ -33,7 +33,7 @@ impl Display for Expr {
             Expr::Nil => write!(f, "nil"),
             Expr::Bool(b) => write!(f, "{b}"),
             Expr::String(_) => unimplemented!(),
-            Expr::Number(_) => unimplemented!(),
+            Expr::Number(n) => write!(f, "{n:?}"),
         }
     }
 }
