@@ -35,7 +35,18 @@ impl LoxParser for RecursiveDecendantParser {
 impl RecursiveDecendantParser {
 
     fn expression(&mut self) -> Expr {
-        self.factor()
+        self.term()
+    }
+
+    fn term(&mut self) -> Expr {
+        use TokenType::*;
+        let mut expr = self.factor();
+        while let Some(Token { token_type: Plus | Minus, ..}) = self.peek() {
+            let opr = self.advance().unwrap();
+            let right = self.factor();
+            expr = Expr::binary(expr, opr, right);
+        }
+        expr
     }
 
     fn factor(&mut self) -> Expr {

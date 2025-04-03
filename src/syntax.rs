@@ -1,6 +1,6 @@
-use std::fmt::{write, Display};
+use std::fmt::Display;
 
-use crate::token::{Token, TokenType};
+use crate::token::Token;
 
 
 pub struct Ast {

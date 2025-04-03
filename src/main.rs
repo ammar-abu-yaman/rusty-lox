@@ -64,19 +64,3 @@ fn parse(filename: &str) -> Result<(), io::Error> {
 
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use std::io::Cursor;
-
-    use super::*;
-
-    #[test]
-    fn test() {
-        let lox = Cursor::new(b"10 * 85 / 70");
-        let scanner = Scanner::new(SeekPeekReader::new(lox));
-        let mut parser = RecursiveDecendantParser::new();
-        let ast = parser.parse(scanner);
-        println!("{:#?}", ast.unwrap().root)
-    }
-}
