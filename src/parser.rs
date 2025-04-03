@@ -28,11 +28,16 @@ impl LoxParser for RecursiveDecendantParser {
             .filter(|token| token.is_ok())
             .map(Result::unwrap)
             .collect();     
-        Ok(Ast::new(self.primary()))
+        Ok(Ast::new(self.expression()))
     }
 }
 
 impl RecursiveDecendantParser {
+
+    fn expression(&mut self) -> Expr {
+        self.primary()
+    }
+
     fn primary(&mut self) -> Expr {
         use TokenType::*;
         match self.advance() {
@@ -41,6 +46,11 @@ impl RecursiveDecendantParser {
             Some(Token { token_type: False, .. }) => Expr::Bool(false),
             Some(Token { token_type: Number, literal: Literal::Number(n), ..}) => Expr::Number(n),
             Some(Token { token_type: String, literal: Literal::String(s), ..}) => Expr::String(s),
+            Some(Token { token_type: LeftParen, ..}) => {
+                let expr = self.expression();
+                self.consume(RightParen);
+                Expr::grouping(expr)
+            }
             _ => panic!("Expected True, False, Number, String or Nil")
         }
     }
@@ -54,5 +64,12 @@ impl RecursiveDecendantParser {
             self.current += 1;
         }
         token
+    }
+
+    fn consume(&mut self, tt: TokenType) {
+        match self.advance() {
+            Some(Token { token_type, .. }) if token_type == tt => {},
+            _ => panic!("Unexpected token type"),
+        }
     }
 }

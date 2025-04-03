@@ -2,6 +2,17 @@ use std::fmt::{write, Display};
 
 use crate::token::{Token, TokenType};
 
+
+pub struct Ast {
+    pub root: Expr,
+}
+
+impl Ast {
+    pub fn new(root: Expr) -> Self {
+        Self { root }
+    }
+}
+
 pub type BoxedExpr = Box<Expr>;
 
 pub enum Expr {
@@ -14,13 +25,9 @@ pub enum Expr {
     Number(f64),
 }
 
-pub struct Ast {
-    pub root: Expr,
-}
-
-impl Ast {
-    pub fn new(root: Expr) -> Self {
-        Self { root }
+impl Expr {
+    pub fn grouping(expr: Expr) -> Self {
+        Self::Grouping(BoxedExpr::new(expr))
     }
 }
 
@@ -29,7 +36,7 @@ impl Display for Expr {
         match self {
             Expr::Binary { left, operator, right } => unimplemented!(),
             Expr::Unary { operator, expr } => unimplemented!(),
-            Expr::Grouping(expr) => unimplemented!(),
+            Expr::Grouping(expr) => write!(f, "(group {expr})"),
             Expr::Nil => write!(f, "nil"),
             Expr::Bool(b) => write!(f, "{b}"),
             Expr::String(s) => write!(f, "{s}"),
