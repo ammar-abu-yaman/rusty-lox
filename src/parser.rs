@@ -35,7 +35,18 @@ impl LoxParser for RecursiveDecendantParser {
 impl RecursiveDecendantParser {
 
     fn expression(&mut self) -> Expr {
-        self.term()
+        self.comparision()
+    }
+
+    fn comparision(&mut self) -> Expr {
+        use TokenType::*;
+        let mut expr = self.term();
+        while let Some(Token { token_type: Greater | GreaterEq | Less | LessEq, ..}) = self.peek() {
+            let opr = self.advance().unwrap();
+            let right = self.term();
+            expr = Expr::binary(expr, opr, right);
+        }
+        expr
     }
 
     fn term(&mut self) -> Expr {
