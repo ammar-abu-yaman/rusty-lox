@@ -9,14 +9,19 @@ pub fn error(line: u64, err: impl Into<&'static str>) {
 }
 
 pub fn token(token: &Token) {
-    println!("{} {} {}", token_name(token), token.lexeme, token_value(token))
+    println!(
+        "{} {} {}",
+        token_name(token),
+        token.lexeme,
+        token_value(token)
+    )
 }
 
 pub fn token_value(token: &Token) -> String {
     use Literal::*;
     match &token.literal {
         String(s) => s.clone(),
-        Number(n) => format!("{n:?}"), 
+        Number(n) => format!("{n:?}"),
         NoValue => "null".to_string(),
     }
 }

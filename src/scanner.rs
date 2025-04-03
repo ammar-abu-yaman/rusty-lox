@@ -2,7 +2,10 @@ use std::io::{self, Read, Result, Seek};
 
 use peekread::PeekRead;
 
-use crate::{log, token::{Token, TokenType}};
+use crate::{
+    log,
+    token::{Token, TokenType},
+};
 
 pub struct Scanner<R: PeekRead + Seek> {
     reader: R,
@@ -11,7 +14,7 @@ pub struct Scanner<R: PeekRead + Seek> {
     has_error: bool,
 }
 
-impl <R: PeekRead + Seek> Scanner<R> {
+impl<R: PeekRead + Seek> Scanner<R> {
     pub fn new(reader: R) -> Self {
         Self {
             reader,
@@ -22,20 +25,20 @@ impl <R: PeekRead + Seek> Scanner<R> {
     }
 }
 
-impl <R: PeekRead + Seek> From<R> for Scanner<R> {
+impl<R: PeekRead + Seek> From<R> for Scanner<R> {
     fn from(reader: R) -> Self {
         Scanner::<R>::new(reader)
     }
 }
 
-impl <R: PeekRead + Seek> Scanner<R> {
+impl<R: PeekRead + Seek> Scanner<R> {
     pub fn has_error(&self) -> bool {
-        return self.has_error
+        return self.has_error;
     }
 }
 
-impl <R: PeekRead + Seek> Scanner<R> {
-    pub fn next(&mut self) -> Result<Token> {
+impl<R: PeekRead + Seek> Scanner<R> {
+    pub fn next_token(&mut self) -> Result<Token> {
         loop {
             let byte = self.advance();
             if byte.is_none() {
@@ -64,11 +67,11 @@ impl <R: PeekRead + Seek> Scanner<R> {
                 '/' if self.matchup('/') => {
                     self.read_line()?;
                     continue;
-                },
+                }
                 '/' => Token::symbol(Div, "/", self.line),
-                '"' => self.string().unwrap_or_else(|_| { 
+                '"' => self.string().unwrap_or_else(|_| {
                     self.has_error = true;
-                    Token::eof() 
+                    Token::eof()
                 }),
                 d @ '0'..='9' => return self.number(d),
                 '\n' => continue,
@@ -82,10 +85,9 @@ impl <R: PeekRead + Seek> Scanner<R> {
             };
             return Ok(token);
         }
-
     }
 
-    pub fn advance(&mut self) -> Option<Result<u8>> {
+    fn advance(&mut self) -> Option<Result<u8>> {
         let c = (&mut self.reader).bytes().next();
         if c.is_none() {
             return c;
@@ -97,14 +99,14 @@ impl <R: PeekRead + Seek> Scanner<R> {
         c
     }
 
-    pub fn number(&mut self, first: char) -> Result<Token> {
+    fn number(&mut self, first: char) -> Result<Token> {
         let mut lexeme = first.to_string();
         loop {
             match self.peek() {
-                Some(d @  '0'..='9') => {
+                Some(d @ '0'..='9') => {
                     lexeme.push(d);
                     self.advance();
-                },
+                }
                 Some('.') if matches!(self.peek_offset(1), Some('0'..='9')) => {
                     lexeme.push('.');
                     self.advance();
@@ -115,21 +117,21 @@ impl <R: PeekRead + Seek> Scanner<R> {
         Ok(Token::number(lexeme, self.line))
     }
 
-    pub fn identifier(&mut self, first: char) -> Result<Token> {
+    fn identifier(&mut self, first: char) -> Result<Token> {
         let mut lexeme = first.to_string();
         loop {
             match self.peek() {
-                Some(c ) if c.is_ascii_alphanumeric() || c == '_' => {
+                Some(c) if c.is_ascii_alphanumeric() || c == '_' => {
                     lexeme.push(c);
                     self.advance();
-                },
+                }
                 _ => break,
             }
         }
         Ok(Token::textual(lexeme, self.line))
     }
 
-    pub fn string(&mut self) -> Result<Token> {
+    fn string(&mut self) -> Result<Token> {
         let mut s = String::new();
         loop {
             match self.advance() {
@@ -139,14 +141,17 @@ impl <R: PeekRead + Seek> Scanner<R> {
                 None => {
                     log::error(self.line, "Unterminated string.");
                     self.has_error = true;
-                    return Err(std::io::Error::new(io::ErrorKind::InvalidInput, "Invalid Input"))
-                },
+                    return Err(std::io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Invalid Input",
+                    ));
+                }
             }
         }
         Ok(Token::string(s, self.line))
     }
 
-    pub fn read_line(&mut self) -> Result<String> {
+    fn read_line(&mut self) -> Result<String> {
         let mut s = String::new();
         while let Some(b) = self.advance() {
             if matches!(b, Ok(b'\n')) {
@@ -157,7 +162,7 @@ impl <R: PeekRead + Seek> Scanner<R> {
         Ok(s)
     }
 
-    pub fn matchup(&mut self, c: char) -> bool {
+    fn matchup(&mut self, c: char) -> bool {
         if self.peek() == Some(c) {
             self.advance();
             true
@@ -166,19 +171,56 @@ impl <R: PeekRead + Seek> Scanner<R> {
         }
     }
 
-    pub fn peek(&mut self) -> Option<char> {
+    fn peek(&mut self) -> Option<char> {
         match (&mut self.reader).peek().bytes().next() {
             None => None,
             Some(Err(_)) => None,
-            Some(Ok(c)) => Some(c as char)
+            Some(Ok(c)) => Some(c as char),
         }
     }
 
-    pub fn peek_offset(&mut self, offset: u64) -> Option<char> {
-        match (&mut self.reader).peek().bytes().skip(offset as usize).next() {
+    fn peek_offset(&mut self, offset: u64) -> Option<char> {
+        match (&mut self.reader)
+            .peek()
+            .bytes()
+            .skip(offset as usize)
+            .next()
+        {
             None => None,
             Some(Err(_)) => None,
-            Some(Ok(c)) => Some(c as char)
+            Some(Ok(c)) => Some(c as char),
         }
+    }
+}
+
+pub struct IntoIter<R: PeekRead + Seek> {
+    reached_end: bool,
+    scanner: Scanner<R>
+}
+
+impl <R: PeekRead + Seek> IntoIterator for Scanner<R> {
+    type Item = Result<Token>;
+    type IntoIter = crate::scanner::IntoIter<R>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IntoIter { 
+            reached_end: false,
+            scanner: self,
+        }
+    }
+}
+
+impl <R: PeekRead + Seek> Iterator for IntoIter<R> {
+    type Item = Result<Token>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.reached_end {
+            return None
+        }
+        let token = self.scanner.next_token();
+        if matches!(token, Ok(Token { token_type: TokenType::Eof, ..})) {
+            self.reached_end = true;
+        }
+        return Some(token)
     }
 }

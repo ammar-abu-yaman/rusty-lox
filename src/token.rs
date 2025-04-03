@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
@@ -8,7 +9,12 @@ pub struct Token {
 }
 
 impl Token {
-    pub fn new(token_type: TokenType, lexeme: impl Into<String>, literal: Literal, line: u64) -> Self {
+    pub fn new(
+        token_type: TokenType,
+        lexeme: impl Into<String>,
+        literal: Literal,
+        line: u64,
+    ) -> Self {
         Self {
             token_type,
             lexeme: lexeme.into(),
@@ -27,8 +33,13 @@ impl Token {
     }
 
     pub fn string(value: impl Into<String>, line: u64) -> Self {
-        let value= value.into();
-        Self::new(TokenType::String, format!("\"{}\"", value), Literal::String(value), line)
+        let value = value.into();
+        Self::new(
+            TokenType::String,
+            format!("\"{}\"", value),
+            Literal::String(value),
+            line,
+        )
     }
 
     pub fn number(value: impl Into<String>, line: u64) -> Self {
@@ -36,12 +47,13 @@ impl Token {
         let n = value.parse().unwrap();
         Self::new(TokenType::Number, value, Literal::Number(n), line)
     }
-    
+
     pub fn eof() -> Self {
         Self::new(TokenType::Eof, "", Literal::NoValue, 0)
     }
 }
 
+#[derive(Clone)]
 pub struct TokenPosition {
     pub line: u64,
 }
@@ -53,8 +65,8 @@ pub enum TokenType {
     LeftBrace,
     RightBrace,
     Plus,
-    Minus, 
-    Dot, 
+    Minus,
+    Dot,
     SemiColon,
     Star,
     Comma,
@@ -70,21 +82,21 @@ pub enum TokenType {
     Identifier,
     Number,
     Div,
-    And, 
-    Class, 
-    Else, 
-    False, 
-    For, 
-    Fun, 
-    If, 
-    Nil, 
-    Or, 
-    Print, 
-    Return, 
-    Super, 
-    This, 
-    True, 
-    Var, 
+    And,
+    Class,
+    Else,
+    False,
+    For,
+    Fun,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
     While,
     Eof,
 }
@@ -114,7 +126,7 @@ pub fn identifier_type(s: &str) -> TokenType {
         "this" => This,
         "true" => True,
         "var" => Var,
-        "while" => While,   
+        "while" => While,
         _ => Identifier,
     }
 }
