@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
@@ -53,7 +53,7 @@ impl Token {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct TokenPosition {
     pub line: u64,
 }
