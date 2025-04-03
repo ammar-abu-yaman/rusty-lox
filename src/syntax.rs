@@ -29,13 +29,17 @@ impl Expr {
     pub fn grouping(expr: Expr) -> Self {
         Self::Grouping(BoxedExpr::new(expr))
     }
+
+    pub fn unary(operator: Token, expr: Expr) -> Self {
+        Self::Unary {operator, expr: BoxedExpr::new(expr)}
+    }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Binary { left, operator, right } => unimplemented!(),
-            Expr::Unary { operator, expr } => unimplemented!(),
+            Expr::Unary { operator, expr } => write!(f, "({} {})", operator.lexeme, expr.as_ref()),
             Expr::Grouping(expr) => write!(f, "(group {expr})"),
             Expr::Nil => write!(f, "nil"),
             Expr::Bool(b) => write!(f, "{b}"),

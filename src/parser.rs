@@ -35,7 +35,20 @@ impl LoxParser for RecursiveDecendantParser {
 impl RecursiveDecendantParser {
 
     fn expression(&mut self) -> Expr {
-        self.primary()
+        self.unary()
+    }
+
+    fn unary(&mut self) -> Expr {
+        use TokenType::*;
+        match self.peek() {
+            Some(Token { token_type: Not | Minus, ..}) => {
+                let opr = self.advance().unwrap();
+                let expr = self.unary();
+                return Expr::unary(opr, expr)
+            },
+            Some(_) => self.primary(),
+            None => panic!("Expected an unary expression"),
+        }
     }
 
     fn primary(&mut self) -> Expr {
@@ -57,6 +70,10 @@ impl RecursiveDecendantParser {
 }
 
 impl RecursiveDecendantParser {
+
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.current)
+    }
 
     fn advance(&mut self) -> Option<Token> {
         let token = self.tokens.get(self.current).cloned();
