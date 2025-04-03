@@ -2,7 +2,6 @@ use std::fmt::Display;
 
 use crate::token::Token;
 
-
 pub struct Ast {
     pub root: Expr,
 }
@@ -17,8 +16,15 @@ pub type BoxedExpr = Box<Expr>;
 
 #[derive(Debug)]
 pub enum Expr {
-    Binary { left: BoxedExpr, operator: Token, right: BoxedExpr },
-    Unary { operator: Token, expr: BoxedExpr },
+    Binary {
+        left: BoxedExpr,
+        operator: Token,
+        right: BoxedExpr,
+    },
+    Unary {
+        operator: Token,
+        expr: BoxedExpr,
+    },
     Grouping(BoxedExpr),
     Nil,
     Bool(bool),
@@ -32,19 +38,33 @@ impl Expr {
     }
 
     pub fn unary(operator: Token, expr: Expr) -> Self {
-        Self::Unary {operator, expr: BoxedExpr::new(expr)}
+        Self::Unary {
+            operator,
+            expr: BoxedExpr::new(expr),
+        }
     }
 
     pub fn binary(left: Expr, operator: Token, right: Expr) -> Self {
-        Self::Binary {left: BoxedExpr::new(left), operator, right: BoxedExpr::new(right)}
+        Self::Binary {
+            left: BoxedExpr::new(left),
+            operator,
+            right: BoxedExpr::new(right),
+        }
     }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Binary { left, operator: Token { lexeme, ..}, right } => write!(f, "({lexeme} {left} {right})"),
-            Expr::Unary { operator: Token { lexeme, .. }, expr } => write!(f, "({lexeme} {expr})"),
+            Expr::Binary {
+                left,
+                operator: Token { lexeme, .. },
+                right,
+            } => write!(f, "({lexeme} {left} {right})"),
+            Expr::Unary {
+                operator: Token { lexeme, .. },
+                expr,
+            } => write!(f, "({lexeme} {expr})"),
             Expr::Grouping(expr) => write!(f, "(group {expr})"),
             Expr::Nil => write!(f, "nil"),
             Expr::Bool(b) => write!(f, "{b}"),

@@ -1,11 +1,22 @@
 use crate::token::{Literal, Token, TokenType};
 
-pub fn error_unkown_symbol(line: u64, s: impl Into<String>) {
-    eprintln!("[line {}] Error: Unexpected character: {}", line, s.into());
+pub fn error_unkown_symbol(line: u64, s: &str) {
+    eprintln!("[line {line}] Error: Unexpected character: {s}");
 }
 
-pub fn error(line: u64, err: impl Into<&'static str>) {
-    eprintln!("[line {line}] Error: {}", err.into());
+pub fn error(line: u64, err: &str) {
+    eprintln!("[line {line}] Error: {}", err);
+}
+
+pub fn error_token(token: &Token, err: &str) {
+    if token.token_type == TokenType::Eof {
+        eprintln!("[line {}] Error at end: {err}", token.pos.line);
+    } else {
+        eprintln!(
+            "[line {}] Error at '{}': {err}",
+            token.pos.line, token.lexeme
+        );
+    }
 }
 
 pub fn token(token: &Token) {

@@ -4,14 +4,13 @@ use std::io::{self, Write};
 use std::process::exit;
 
 use parser::{LoxParser, RecursiveDecendantParser};
-use peekread::SeekPeekReader;
 use scanner::Scanner;
 use token::TokenType;
 
-mod parser;
-mod syntax;
 mod log;
+mod parser;
 mod scanner;
+mod syntax;
 mod token;
 
 fn main() -> io::Result<()> {
@@ -30,7 +29,7 @@ fn main() -> io::Result<()> {
         _ => {
             writeln!(io::stderr(), "Unknown command: {}", command).unwrap();
             return Ok(());
-        },
+        }
     }
 
     return Ok(());
@@ -38,10 +37,10 @@ fn main() -> io::Result<()> {
 
 fn tokenize(filename: &str) -> Result<(), io::Error> {
     let file = File::open(filename)?;
-    let mut scanner = Scanner::new(SeekPeekReader::new(file));
+    let mut scanner = Scanner::try_from(file)?;
     let mut tokens = vec![];
     loop {
-        let token = scanner.next_token()?;
+        let token = scanner.next_token();
         tokens.push(token);
         if tokens.last().unwrap().token_type == TokenType::Eof {
             break;
@@ -56,11 +55,18 @@ fn tokenize(filename: &str) -> Result<(), io::Error> {
 
 fn parse(filename: &str) -> Result<(), io::Error> {
     let file = File::open(filename)?;
-    let scanner = Scanner::new(SeekPeekReader::new(file));
+    let mut scanner = Scanner::try_from(file)?;
     let mut parser = RecursiveDecendantParser::new();
 
-    let ast = parser.parse(scanner).unwrap();
-    println!("{}", ast.root);
+    let ast = parser.parse(&mut scanner);
+    if scanner.has_error() {
+        exit(65);
+    }
+    if ast.is_some() { 
+        println!("{}", ast.unwrap().root);
+    } else {
+        exit(65);
+    }
 
     Ok(())
 }

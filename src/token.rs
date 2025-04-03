@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 #[derive(Debug, Clone)]
 pub struct Token {
     pub token_type: TokenType,
@@ -14,48 +12,63 @@ impl Token {
         lexeme: impl Into<String>,
         literal: Literal,
         line: u64,
+        offset: u64,
     ) -> Self {
         Self {
             token_type,
             lexeme: lexeme.into(),
             literal,
-            pos: TokenPosition { line },
+            pos: TokenPosition { line, offset },
         }
     }
 
-    pub fn symbol(token_type: TokenType, lexeme: impl Into<String>, line: u64) -> Self {
-        Self::new(token_type, lexeme.into(), Literal::NoValue, line)
+    pub fn symbol(
+        token_type: TokenType,
+        lexeme: impl Into<String>,
+        line: u64,
+        offset: u64,
+    ) -> Self {
+        Self::new(token_type, lexeme.into(), Literal::NoValue, line, offset)
     }
 
-    pub fn textual(value: impl Into<String>, line: u64) -> Self {
-        let value = value.into();
-        Self::new(identifier_type(&value), value, Literal::NoValue, line)
-    }
-
-    pub fn string(value: impl Into<String>, line: u64) -> Self {
+    pub fn textual(value: impl Into<String>, line: u64, offset: u64) -> Self {
         let value = value.into();
         Self::new(
-            TokenType::String,
-            format!("\"{}\"", value),
-            Literal::String(value),
+            identifier_type(&value),
+            value,
+            Literal::NoValue,
             line,
+            offset,
         )
     }
 
-    pub fn number(value: impl Into<String>, line: u64) -> Self {
-        let value = value.into();
-        let n = value.parse().unwrap();
-        Self::new(TokenType::Number, value, Literal::Number(n), line)
+    pub fn string(value: impl Into<String>, line: u64, offset: u64) -> Self {
+        let lexeme = value.into();
+        let value = lexeme[1..lexeme.len() - 1].to_string();
+        Self::new(
+            TokenType::String,
+            lexeme,
+            Literal::String(value),
+            line,
+            offset,
+        )
     }
 
-    pub fn eof() -> Self {
-        Self::new(TokenType::Eof, "", Literal::NoValue, 0)
+    pub fn number(value: impl Into<String>, line: u64, offset: u64) -> Self {
+        let value = value.into();
+        let n = value.parse().unwrap();
+        Self::new(TokenType::Number, value, Literal::Number(n), line, offset)
+    }
+
+    pub fn eof(line: u64) -> Self {
+        Self::new(TokenType::Eof, "", Literal::NoValue, line, 0)
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct TokenPosition {
     pub line: u64,
+    pub offset: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

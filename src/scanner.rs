@@ -1,23 +1,25 @@
-use std::io::{self, Read, Result, Seek};
-
-use peekread::PeekRead;
+use core::str;
+use std::{
+    fs::File,
+    io::{self, Read},
+};
 
 use crate::{
     log,
     token::{Token, TokenType},
 };
 
-pub struct Scanner<R: PeekRead + Seek> {
-    reader: R,
-    current: u64,
+pub struct Scanner {
+    source: Vec<u8>,
+    current: usize,
     line: u64,
     has_error: bool,
 }
 
-impl<R: PeekRead + Seek> Scanner<R> {
-    pub fn new(reader: R) -> Self {
+impl Scanner {
+    pub fn new(source: Vec<u8>) -> Self {
         Self {
-            reader,
+            source,
             current: 0,
             line: 1,
             has_error: false,
@@ -25,141 +27,139 @@ impl<R: PeekRead + Seek> Scanner<R> {
     }
 }
 
-impl<R: PeekRead + Seek> From<R> for Scanner<R> {
-    fn from(reader: R) -> Self {
-        Scanner::<R>::new(reader)
+impl TryFrom<File> for Scanner {
+    type Error = io::Error;
+    fn try_from(mut file: File) -> io::Result<Self> {
+        let mut source = Vec::new();
+        file.read_to_end(&mut source)?;
+        Ok(Scanner::new(source))
     }
 }
 
-impl<R: PeekRead + Seek> Scanner<R> {
+impl Scanner {
     pub fn has_error(&self) -> bool {
         return self.has_error;
     }
 }
 
-impl<R: PeekRead + Seek> Scanner<R> {
-    pub fn next_token(&mut self) -> Result<Token> {
+impl Scanner {
+    pub fn scan_all(&mut self) -> Vec<Token> {
+        let mut tokens = vec![];
         loop {
+            let token = self.next_token();
+            tokens.push(token);
+            if tokens.last().unwrap().token_type == TokenType::Eof {
+                break;
+            }
+        }
+        tokens
+    }
+
+    pub fn next_token(&mut self) -> Token {
+        loop {
+            let line = self.line;
+            let offset = self.current as u64;
             let byte = self.advance();
             if byte.is_none() {
-                return Ok(Token::eof());
+                return Token::eof(line);
             }
             use TokenType::*;
-            let token = match byte.unwrap()? as char {
-                '(' => Token::symbol(LeftParen, "(", self.line),
-                ')' => Token::symbol(RightParen, ")", self.line),
-                '{' => Token::symbol(LeftBrace, "{", self.line),
-                '}' => Token::symbol(RightBrace, "}", self.line),
-                '+' => Token::symbol(Plus, "+", self.line),
-                '-' => Token::symbol(Minus, "-", self.line),
-                '.' => Token::symbol(Dot, ".", self.line),
-                '*' => Token::symbol(Star, "*", self.line),
-                ',' => Token::symbol(Comma, ",", self.line),
-                ';' => Token::symbol(SemiColon, ";", self.line),
-                '=' if self.matchup('=') => Token::symbol(Equal, "==", self.line),
-                '=' => Token::symbol(Asign, "=", self.line),
-                '!' if self.matchup('=') => Token::symbol(NotEqual, "!=", self.line),
-                '!' => Token::symbol(Not, "!", self.line),
-                '<' if self.matchup('=') => Token::symbol(LessEq, "<=", self.line),
-                '<' => Token::symbol(Less, "<", self.line),
-                '>' if self.matchup('=') => Token::symbol(GreaterEq, ">=", self.line),
-                '>' => Token::symbol(Greater, ">", self.line),
+            let token: Token = match byte.unwrap() as char {
+                '(' => Token::symbol(LeftParen, "(", line, offset),
+                ')' => Token::symbol(RightParen, ")", line, offset),
+                '{' => Token::symbol(LeftBrace, "{", line, offset),
+                '}' => Token::symbol(RightBrace, "}", line, offset),
+                '+' => Token::symbol(Plus, "+", line, offset),
+                '-' => Token::symbol(Minus, "-", line, offset),
+                '.' => Token::symbol(Dot, ".", line, offset),
+                '*' => Token::symbol(Star, "*", line, offset),
+                ',' => Token::symbol(Comma, ",", line, offset),
+                ';' => Token::symbol(SemiColon, ";", line, offset),
+                '=' if self.matchup('=') => Token::symbol(Equal, "==", line, offset),
+                '=' => Token::symbol(Asign, "=", line, offset),
+                '!' if self.matchup('=') => Token::symbol(NotEqual, "!=", line, offset),
+                '!' => Token::symbol(Not, "!", line, offset),
+                '<' if self.matchup('=') => Token::symbol(LessEq, "<=", line, offset),
+                '<' => Token::symbol(Less, "<", line, offset),
+                '>' if self.matchup('=') => Token::symbol(GreaterEq, ">=", line, offset),
+                '>' => Token::symbol(Greater, ">", line, offset),
                 '/' if self.matchup('/') => {
-                    self.read_line()?;
+                    self.skip_line();
                     continue;
                 }
-                '/' => Token::symbol(Div, "/", self.line),
-                '"' => self.string().unwrap_or_else(|_| {
-                    self.has_error = true;
-                    Token::eof()
-                }),
-                d @ '0'..='9' => return self.number(d),
+                '/' => Token::symbol(Div, "/", line, offset),
+                '"' => self.string(line, offset),
+                '0'..='9' => return self.number(line, offset),
                 '\n' => continue,
-                c @ ('a'..='z' | 'A'..='Z' | '_') => return self.identifier(c),
+                'a'..='z' | 'A'..='Z' | '_' => return self.identifier(line, offset),
                 c if c.is_whitespace() => continue,
                 c => {
                     self.has_error = true;
-                    log::error_unkown_symbol(self.line, c);
+                    log::error_unkown_symbol(self.line, c.to_string().as_str());
                     continue;
                 }
             };
-            return Ok(token);
+            return token;
         }
     }
 
-    fn advance(&mut self) -> Option<Result<u8>> {
-        let c = (&mut self.reader).bytes().next();
+    fn advance(&mut self) -> Option<u8> {
+        let c = self.source.get(self.current).copied();
         if c.is_none() {
             return c;
         }
         self.current += 1;
-        if matches!(c, Some(Ok(b'\n'))) {
+        if matches!(c, Some(b'\n')) {
             self.line += 1;
         }
         c
     }
 
-    fn number(&mut self, first: char) -> Result<Token> {
-        let mut lexeme = first.to_string();
+    fn number(&mut self, line: u64, offset: u64) -> Token {
         loop {
             match self.peek() {
-                Some(d @ '0'..='9') => {
-                    lexeme.push(d);
-                    self.advance();
-                }
-                Some('.') if matches!(self.peek_offset(1), Some('0'..='9')) => {
-                    lexeme.push('.');
-                    self.advance();
-                }
+                Some('0'..='9') => self.advance(),
+                Some('.') if matches!(self.peek_offset(1), Some('0'..='9')) => self.advance(),
                 _ => break,
-            }
+            };
         }
-        Ok(Token::number(lexeme, self.line))
+        let lexeme = str::from_utf8(&self.source[offset as usize..self.current]).unwrap();
+        Token::number(lexeme, line, offset)
     }
 
-    fn identifier(&mut self, first: char) -> Result<Token> {
-        let mut lexeme = first.to_string();
+    fn identifier(&mut self, line: u64, offset: u64) -> Token {
         loop {
             match self.peek() {
-                Some(c) if c.is_ascii_alphanumeric() || c == '_' => {
-                    lexeme.push(c);
-                    self.advance();
-                }
+                Some(c) if c.is_ascii_alphanumeric() || c == '_' => self.advance(),
                 _ => break,
-            }
+            };
         }
-        Ok(Token::textual(lexeme, self.line))
+        let lexeme = str::from_utf8(&self.source[offset as usize..self.current]).unwrap();
+        Token::textual(lexeme, line, offset)
     }
 
-    fn string(&mut self) -> Result<Token> {
-        let mut s = String::new();
+    fn string(&mut self, line: u64, offset: u64) -> Token {
         loop {
             match self.advance() {
-                Some(Ok(b'"')) => break,
-                Some(Ok(b)) => s.push(b as char),
-                Some(Err(e)) => return Err(e),
+                Some(b'"') => break,
+                Some(_) => continue,
                 None => {
                     log::error(self.line, "Unterminated string.");
                     self.has_error = true;
-                    return Err(std::io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        "Invalid Input",
-                    ));
+                    return Token::eof(line);
                 }
             }
         }
-        Ok(Token::string(s, self.line))
+        let lexeme = str::from_utf8(&self.source[offset as usize..self.current]).unwrap();
+        Token::string(lexeme, line, offset)
     }
 
-    fn read_line(&mut self) -> Result<String> {
-        let mut s = String::new();
+    fn skip_line(&mut self) {
         while let Some(b) = self.advance() {
-            if matches!(b, Ok(b'\n')) {
+            if b == b'\n' {
                 break;
             }
-            s.push(b? as char);
         }
-        Ok(s)
     }
 
     fn matchup(&mut self, c: char) -> bool {
@@ -172,55 +172,14 @@ impl<R: PeekRead + Seek> Scanner<R> {
     }
 
     fn peek(&mut self) -> Option<char> {
-        match (&mut self.reader).peek().bytes().next() {
-            None => None,
-            Some(Err(_)) => None,
-            Some(Ok(c)) => Some(c as char),
-        }
+        self.peek_offset(0)
     }
 
     fn peek_offset(&mut self, offset: u64) -> Option<char> {
-        match (&mut self.reader)
-            .peek()
-            .bytes()
-            .skip(offset as usize)
-            .next()
-        {
-            None => None,
-            Some(Err(_)) => None,
-            Some(Ok(c)) => Some(c as char),
-        }
+        self.source
+            .get(self.current + offset as usize)
+            .copied()
+            .map(|c| c as char)
     }
 }
 
-pub struct IntoIter<R: PeekRead + Seek> {
-    reached_end: bool,
-    scanner: Scanner<R>
-}
-
-impl <R: PeekRead + Seek> IntoIterator for Scanner<R> {
-    type Item = Result<Token>;
-    type IntoIter = crate::scanner::IntoIter<R>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        IntoIter { 
-            reached_end: false,
-            scanner: self,
-        }
-    }
-}
-
-impl <R: PeekRead + Seek> Iterator for IntoIter<R> {
-    type Item = Result<Token>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.reached_end {
-            return None
-        }
-        let token = self.scanner.next_token();
-        if matches!(token, Ok(Token { token_type: TokenType::Eof, ..})) {
-            self.reached_end = true;
-        }
-        return Some(token)
-    }
-}
