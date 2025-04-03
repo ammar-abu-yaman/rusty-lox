@@ -40,7 +40,8 @@ impl RecursiveDecendantParser {
             Some(Token { token_type: True, .. }) => Expr::Bool(true),
             Some(Token { token_type: False, .. }) => Expr::Bool(false),
             Some(Token { token_type: Number, literal: Literal::Number(n), ..}) => Expr::Number(n),
-            _ => panic!("Expected True, False or Nil")
+            Some(Token { token_type: String, literal: Literal::String(s), ..}) => Expr::String(s),
+            _ => panic!("Expected True, False, Number, String or Nil")
         }
     }
 }

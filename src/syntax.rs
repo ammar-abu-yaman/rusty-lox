@@ -32,7 +32,7 @@ impl Display for Expr {
             Expr::Grouping(expr) => unimplemented!(),
             Expr::Nil => write!(f, "nil"),
             Expr::Bool(b) => write!(f, "{b}"),
-            Expr::String(_) => unimplemented!(),
+            Expr::String(s) => write!(f, "{s}"),
             Expr::Number(n) => write!(f, "{n:?}"),
         }
     }
