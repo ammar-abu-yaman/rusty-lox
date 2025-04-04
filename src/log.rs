@@ -1,4 +1,7 @@
-use crate::token::{Literal, Token, TokenType};
+use crate::{
+    interpreter::RuntimeError,
+    token::{Literal, Token, TokenType},
+};
 
 pub fn error_unkown_symbol(line: u64, s: &str) {
     eprintln!("[line {line}] Error: Unexpected character: {s}");
@@ -17,6 +20,10 @@ pub fn error_token(token: &Token, err: &str) {
             token.pos.line, token.lexeme
         );
     }
+}
+
+pub fn error_runtime(err: &RuntimeError) {
+    eprintln!("{err}")
 }
 
 pub fn token(token: &Token) {

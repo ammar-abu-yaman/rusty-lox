@@ -1,13 +1,23 @@
+use thiserror::Error;
+
 use crate::{
     syntax::{Ast, Expr, Value},
     token::{Token, TokenType},
 };
 
-pub fn eval(ast: Ast) -> Value {
+type Result<T> = anyhow::Result<T, RuntimeError>;
+
+#[derive(Error, Debug)]
+pub enum RuntimeError {
+    #[error("{message}\n[line {}]", operator.pos.line)]
+    IncompatibleOperandType { operator: Token, message: String },
+}
+
+pub fn eval(ast: Ast) -> Result<Value> {
     eval_expr(&ast.root)
 }
 
-fn eval_expr(expr: &Expr) -> Value {
+fn eval_expr(expr: &Expr) -> Result<Value> {
     match expr {
         Expr::Binary {
             left,
@@ -16,47 +26,59 @@ fn eval_expr(expr: &Expr) -> Value {
         } => eval_binary(left, operator, right),
         Expr::Unary { operator, expr } => eval_unary(operator, expr),
         Expr::Grouping(expr) => eval_expr(expr),
-        Expr::Literal(value) => value.clone(),
+        Expr::Literal(value) => Ok(value.clone()),
     }
 }
 
-fn eval_binary(left: &Expr, operator: &Token, right: &Expr) -> Value {
-    let left_value = eval_expr(left);
-    let right_value = eval_expr(right);
+fn eval_binary(left: &Expr, operator: &Token, right: &Expr) -> Result<Value> {
+    let left_value = eval_expr(left)?;
+    let right_value = eval_expr(right)?;
     use TokenType::*;
     match (left_value, operator.token_type, right_value) {
         // Arithmetic operations
-        (Value::Number(l), Plus, Value::Number(r)) => Value::Number(l + r),
-        (Value::Number(l), Minus, Value::Number(r)) => Value::Number(l - r),
-        (Value::Number(l), Star, Value::Number(r)) => Value::Number(l * r),
-        (Value::Number(l), Div, Value::Number(r)) => Value::Number(l / r),
-        (Value::Number(l), Greater, Value::Number(r)) => Value::Bool(l > r),
-        (Value::Number(l), GreaterEq, Value::Number(r)) => Value::Bool(l >= r),
-        (Value::Number(l), Less, Value::Number(r)) => Value::Bool(l < r),
-        (Value::Number(l), LessEq, Value::Number(r)) => Value::Bool(l <= r),
+        (Value::Number(l), Plus, Value::Number(r)) => Ok(Value::Number(l + r)),
+        (Value::Number(l), Minus, Value::Number(r)) => Ok(Value::Number(l - r)),
+        (Value::Number(l), Star, Value::Number(r)) => Ok(Value::Number(l * r)),
+        (Value::Number(l), Div, Value::Number(r)) => Ok(Value::Number(l / r)),
+        (Value::Number(l), Greater, Value::Number(r)) => Ok(Value::Bool(l > r)),
+        (Value::Number(l), GreaterEq, Value::Number(r)) => Ok(Value::Bool(l >= r)),
+        (Value::Number(l), Less, Value::Number(r)) => Ok(Value::Bool(l < r)),
+        (Value::Number(l), LessEq, Value::Number(r)) => Ok(Value::Bool(l <= r)),
 
         // String operations
-        (Value::String(l), Plus, Value::String(r)) => Value::String(format!("{}{}", l, r)),
+        (Value::String(l), Plus, Value::String(r)) => Ok(Value::String(format!("{}{}", l, r))),
 
         // Logical operations
-        (Value::Bool(l), And, Value::Bool(r)) => Value::Bool(l && r),
-        (Value::Bool(l), Or, Value::Bool(r)) => Value::Bool(l || r),
+        (Value::Bool(l), And, Value::Bool(r)) => Ok(Value::Bool(l && r)),
+        (Value::Bool(l), Or, Value::Bool(r)) => Ok(Value::Bool(l || r)),
 
         // Equality operations
-        (l, Equal, r) => Value::Bool(l == r),
-        (l, NotEqual, r) => Value::Bool(l != r),
+        (l, Equal, r) => Ok(Value::Bool(l == r)),
+        (l, NotEqual, r) => Ok(Value::Bool(l != r)),
+
+        // Incompatible types
+        (_, Plus | Minus | Div | Star | Greater | GreaterEq | Less | LessEq, _) => {
+            Err(RuntimeError::IncompatibleOperandType {
+                operator: operator.clone(),
+                message: "Operands must be numbers".to_string(),
+            })
+        }
+
         _ => panic!("Invalid binary operation"),
     }
 }
 
-fn eval_unary(operator: &Token, expr: &Expr) -> Value {
-    let value = eval_expr(expr);
+fn eval_unary(operator: &Token, expr: &Expr) -> Result<Value> {
+    let value = eval_expr(expr)?;
     match operator.token_type {
         TokenType::Minus => match value {
-            Value::Number(n) => Value::Number(-n),
-            _ => panic!("Invalid unary operator"),
+            Value::Number(n) => Ok(Value::Number(-n)),
+            _ => Err(RuntimeError::IncompatibleOperandType {
+                operator: operator.clone(),
+                message: "Operand must be a number".to_string(),
+            }),
         },
-        TokenType::Not => Value::Bool(!is_true(&value)),
+        TokenType::Not => Ok(Value::Bool(!is_true(&value))),
         _ => panic!("Invalid unary operator"),
     }
 }

@@ -80,7 +80,13 @@ fn evaluate(filename: &str) -> Result<(), io::Error> {
     }
 
     let value = interpreter::eval(ast.unwrap());
-    println!("{}", value);
+    match value {
+        Ok(v) => println!("{}", v),
+        Err(e) => {
+            log::error_runtime(&e);
+            exit(70);
+        }
+    }
 
     Ok(())
 }
