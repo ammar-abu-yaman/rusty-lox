@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::{
     log,
     scanner::Scanner,
-    syntax::{Ast, Expr},
+    syntax::{Ast, Expr, Value},
     token::{Literal, Token, TokenType},
 };
 
@@ -136,23 +136,23 @@ impl RecursiveDecendantParser {
         match self.advance() {
             Token {
                 token_type: Nil, ..
-            } => Ok(Expr::Nil),
+            } => Ok(Expr::Literal(Value::Nil)),
             Token {
                 token_type: True, ..
-            } => Ok(Expr::Bool(true)),
+            } => Ok(Expr::Literal(Value::Bool(true))),
             Token {
                 token_type: False, ..
-            } => Ok(Expr::Bool(false)),
+            } => Ok(Expr::Literal(Value::Bool(false))),
             Token {
                 token_type: Number,
                 literal: Literal::Number(n),
                 ..
-            } => Ok(Expr::Number(n)),
+            } => Ok(Expr::Literal(Value::Number(n))),
             Token {
                 token_type: String,
                 literal: Literal::String(s),
                 ..
-            } => Ok(Expr::String(s)),
+            } => Ok(Expr::Literal(Value::String(s))),
             Token {
                 token_type: LeftParen,
                 ..

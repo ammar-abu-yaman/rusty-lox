@@ -26,10 +26,26 @@ pub enum Expr {
         expr: BoxedExpr,
     },
     Grouping(BoxedExpr),
-    Nil,
-    Bool(bool),
-    String(std::string::String),
+    Literal(Value),
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum Value {
     Number(f64),
+    String(String),
+    Bool(bool),
+    Nil,
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Number(n) => write!(f, "{n:?}"),
+            Value::String(s) => write!(f, "{s}"),
+            Value::Bool(b) => write!(f, "{b}"),
+            Value::Nil => write!(f, "nil"),
+        }
+    }
 }
 
 impl Expr {
@@ -66,10 +82,7 @@ impl Display for Expr {
                 expr,
             } => write!(f, "({lexeme} {expr})"),
             Expr::Grouping(expr) => write!(f, "(group {expr})"),
-            Expr::Nil => write!(f, "nil"),
-            Expr::Bool(b) => write!(f, "{b}"),
-            Expr::String(s) => write!(f, "{s}"),
-            Expr::Number(n) => write!(f, "{n:?}"),
+            Expr::Literal(v) => write!(f, "{v}"),
         }
     }
 }

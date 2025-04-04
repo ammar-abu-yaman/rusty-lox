@@ -182,4 +182,3 @@ impl Scanner {
             .map(|c| c as char)
     }
 }
-

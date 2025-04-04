@@ -7,6 +7,7 @@ use parser::{LoxParser, RecursiveDecendantParser};
 use scanner::Scanner;
 use token::TokenType;
 
+mod interpreter;
 mod log;
 mod parser;
 mod scanner;
@@ -26,6 +27,7 @@ fn main() -> io::Result<()> {
     match command.as_str() {
         "tokenize" => tokenize(filename)?,
         "parse" => parse(filename)?,
+        "evaluate" => evaluate(filename)?,
         _ => {
             writeln!(io::stderr(), "Unknown command: {}", command).unwrap();
             return Ok(());
@@ -59,14 +61,26 @@ fn parse(filename: &str) -> Result<(), io::Error> {
     let mut parser = RecursiveDecendantParser::new();
 
     let ast = parser.parse(&mut scanner);
-    if scanner.has_error() {
+    if scanner.has_error() || ast.is_none() {
         exit(65);
     }
-    if ast.is_some() { 
-        println!("{}", ast.unwrap().root);
-    } else {
+
+    println!("{}", ast.unwrap().root);
+    Ok(())
+}
+
+fn evaluate(filename: &str) -> Result<(), io::Error> {
+    let file = File::open(filename)?;
+    let mut scanner = Scanner::try_from(file)?;
+    let mut parser = RecursiveDecendantParser::new();
+
+    let ast = parser.parse(&mut scanner);
+    if scanner.has_error() || ast.is_none() {
         exit(65);
     }
+
+    let value = interpreter::eval(ast.unwrap());
+    println!("{}", value);
 
     Ok(())
 }
