@@ -28,6 +28,7 @@ fn main() -> io::Result<()> {
         "tokenize" => tokenize(filename)?,
         "parse" => parse(filename)?,
         "evaluate" => evaluate(filename)?,
+        "run" => run(filename)?,
         _ => {
             writeln!(io::stderr(), "Unknown command: {}", command).unwrap();
             return Ok(());
@@ -60,16 +61,38 @@ fn parse(filename: &str) -> Result<(), io::Error> {
     let mut scanner = Scanner::try_from(file)?;
     let mut parser = RecursiveDecendantParser::new();
 
-    let ast = parser.parse(&mut scanner);
-    if scanner.has_error() || ast.is_none() {
+    let expr = parser.parse_expr(&mut scanner);
+    if scanner.has_error() || expr.is_none() {
         exit(65);
     }
 
-    println!("{}", ast.unwrap().root);
+    println!("{}", expr.unwrap());
     Ok(())
 }
 
 fn evaluate(filename: &str) -> Result<(), io::Error> {
+    let file = File::open(filename)?;
+    let mut scanner = Scanner::try_from(file)?;
+    let mut parser = RecursiveDecendantParser::new();
+
+    let expr = parser.parse_expr(&mut scanner);
+    if scanner.has_error() || expr.is_none() {
+        exit(65);
+    }
+
+    let value = interpreter::eval_expr(&expr.unwrap());
+    match value {
+        Ok(v) => println!("{}", v),
+        Err(e) => {
+            log::error_runtime(&e);
+            exit(70);
+        }
+    }
+
+    Ok(())
+}
+
+fn run(filename: &str) -> Result<(), io::Error> {
     let file = File::open(filename)?;
     let mut scanner = Scanner::try_from(file)?;
     let mut parser = RecursiveDecendantParser::new();
@@ -79,14 +102,6 @@ fn evaluate(filename: &str) -> Result<(), io::Error> {
         exit(65);
     }
 
-    let value = interpreter::eval(ast.unwrap());
-    match value {
-        Ok(v) => println!("{}", v),
-        Err(e) => {
-            log::error_runtime(&e);
-            exit(70);
-        }
-    }
-
+    interpreter::eval(ast.unwrap());
     Ok(())
 }

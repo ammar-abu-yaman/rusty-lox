@@ -3,16 +3,35 @@ use std::fmt::Display;
 use crate::token::Token;
 
 pub struct Ast {
-    pub root: Expr,
+    pub statements: Vec<Statement>,
 }
 
 impl Ast {
-    pub fn new(root: Expr) -> Self {
-        Self { root }
+    pub fn new(statements: Vec<Statement>) -> Self {
+        Self { statements }
     }
 }
 
+pub enum Statement {
+    Print(PrintStatement),
+    Expression(ExpressionStatement),
+}
+
 pub type BoxedExpr = Box<Expr>;
+
+
+#[derive(Debug)]
+pub struct PrintStatement {
+    pub print_token: Token,
+    pub expr: Expr,
+    pub semi: Token,
+}
+
+#[derive(Debug)]
+pub struct ExpressionStatement {
+    pub expr: Expr,
+    pub semi: Token,
+}
 
 #[derive(Debug)]
 pub enum Expr {

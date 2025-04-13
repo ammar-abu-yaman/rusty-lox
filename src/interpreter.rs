@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use crate::{
-    syntax::{Ast, Expr, Value},
+    syntax::{Ast, Expr, ExpressionStatement, PrintStatement, Statement, Value},
     token::{Token, TokenType},
 };
 
@@ -13,11 +13,32 @@ pub enum RuntimeError {
     IncompatibleOperandType { operator: Token, message: String },
 }
 
-pub fn eval(ast: Ast) -> Result<Value> {
-    eval_expr(&ast.root)
+pub fn eval(ast: Ast) -> Result<()> {
+    for statement in &ast.statements {
+        eval_stmt(&statement)?;
+    }
+    Ok(())
 }
 
-fn eval_expr(expr: &Expr) -> Result<Value> {
+fn eval_stmt(statement: &Statement) -> Result<()> {
+    match statement {
+        Statement::Print(print_statement) => eval_print_stmt(print_statement),
+        Statement::Expression(expression_statement) => eval_expr_stmt(expression_statement),
+    }
+}
+
+fn eval_print_stmt(stmt: &PrintStatement) -> Result<()> {
+    let value = eval_expr(&stmt.expr)?;
+    println!("{}", value);
+    Ok(())
+}
+
+fn eval_expr_stmt(stmt: &ExpressionStatement) -> Result<()> {
+    eval_expr(&stmt.expr)?;
+    Ok(())
+}
+
+pub fn eval_expr(expr: &Expr) -> Result<Value> {
     match expr {
         Expr::Binary {
             left,

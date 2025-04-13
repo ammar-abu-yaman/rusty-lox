@@ -4,12 +4,13 @@ use thiserror::Error;
 use crate::{
     log,
     scanner::Scanner,
-    syntax::{Ast, Expr, Value},
+    syntax::{Ast, Expr, ExpressionStatement, PrintStatement, Statement, Value},
     token::{Literal, Token, TokenType},
 };
 
 pub trait LoxParser {
     fn parse(&mut self, scanner: &mut Scanner) -> Option<Ast>;
+    fn parse_expr(&mut self, scanner: &mut Scanner) -> Option<Expr>;
 }
 
 pub struct RecursiveDecendantParser {
@@ -43,15 +44,56 @@ impl Default for RecursiveDecendantParser {
 impl LoxParser for RecursiveDecendantParser {
     fn parse(&mut self, scanner: &mut Scanner) -> Option<Ast> {
         self.tokens = scanner.scan_all();
-        let expr = self.expression();
+        let expr = self.statements();
         if expr.is_err() {
             return None;
         }
         Some(Ast::new(expr.unwrap()))
     }
+
+    fn parse_expr(&mut self, scanner: &mut Scanner) -> Option<Expr> {
+        self.tokens = scanner.scan_all();
+        let expr = self.expression();
+        if expr.is_err() {
+            return None;
+        }
+        Some(expr.unwrap())
+    }
 }
 
 impl RecursiveDecendantParser {
+    fn statements(&mut self) -> Result<Vec<Statement>, ParseError> {
+        let mut statements = vec![];
+        loop {
+            use TokenType::*;
+            match self.peek().token_type {
+                Eof => break,
+                Print => statements.push(Statement::Print(self.print_statement()?)),
+                _ => statements.push(Statement::Expression(self.expression_statement()?)),
+            }
+        }
+        Ok(statements)
+    }
+
+    fn print_statement(&mut self) -> Result<PrintStatement, ParseError> {
+        let print_token = self.advance();
+        let expr = self.expression()?;
+        let semi = self.consume(TokenType::SemiColon, "Expect ';' after expression.")?;
+        Ok(PrintStatement {
+            print_token,
+            expr,
+            semi,
+        })
+    }
+
+    fn expression_statement(&mut self) -> Result<ExpressionStatement, ParseError> {
+        let expr = self.expression()?;
+        let semi = self.consume(TokenType::SemiColon, "Expect ';' after expression.")?;
+        Ok(ExpressionStatement { expr, semi })
+    }
+
+
+
     fn expression(&mut self) -> Result<Expr, ParseError> {
         self.equality()
     }
@@ -184,11 +226,10 @@ impl RecursiveDecendantParser {
         token.unwrap_or_else(|| self.tokens.last().unwrap().clone())
     }
 
-    fn consume(&mut self, tt: TokenType, message: impl Into<String>) -> Result<(), ParseError> {
+    fn consume(&mut self, tt: TokenType, message: impl Into<String>) -> Result<Token, ParseError> {
         match self.peek() {
             Token { token_type, .. } if token_type == &tt => {
-                self.advance();
-                Ok(())
+                Ok(self.advance())
             }
             token => {
                 log::error_token(token, &message.into());
