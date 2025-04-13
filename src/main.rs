@@ -102,6 +102,11 @@ fn run(filename: &str) -> Result<(), io::Error> {
         exit(65);
     }
 
-    interpreter::eval(ast.unwrap());
-    Ok(())
+    match interpreter::eval(ast.unwrap()) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            log::error_runtime(&e);
+            exit(70);
+        }
+    }
 }
