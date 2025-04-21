@@ -3,6 +3,7 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::process::exit;
 
+use interpreter::{Evaluator, Interpreter};
 use parser::{LoxParser, RecursiveDecendantParser};
 use scanner::Scanner;
 use token::TokenType;
@@ -80,7 +81,9 @@ fn evaluate(filename: &str) -> Result<(), io::Error> {
         exit(65);
     }
 
-    let value = interpreter::eval_expr(&expr.unwrap());
+    
+    let mut interpreter = interpreter::TreeWalk::new();
+    let value = interpreter.eval(&expr.unwrap());
     match value {
         Ok(v) => println!("{}", v),
         Err(e) => {
@@ -102,7 +105,9 @@ fn run(filename: &str) -> Result<(), io::Error> {
         exit(65);
     }
 
-    match interpreter::eval(ast.unwrap()) {
+    let mut interpreter = interpreter::TreeWalk::new();
+
+    match interpreter.interpret(ast.unwrap()) {
         Ok(_) => Ok(()),
         Err(e) => {
             log::error_runtime(&e);

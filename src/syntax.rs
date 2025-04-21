@@ -13,24 +13,28 @@ impl Ast {
 }
 
 pub enum Statement {
+    Decl(DeclarationStatement),
     Print(PrintStatement),
     Expression(ExpressionStatement),
 }
 
 pub type BoxedExpr = Box<Expr>;
 
+#[derive(Debug)]
+pub struct DeclarationStatement {
+    pub name: Token,
+    pub initializer: Expr,
+}
 
 #[derive(Debug)]
 pub struct PrintStatement {
     pub print_token: Token,
     pub expr: Expr,
-    pub semi: Token,
 }
 
 #[derive(Debug)]
 pub struct ExpressionStatement {
     pub expr: Expr,
-    pub semi: Token,
 }
 
 #[derive(Debug)]
@@ -46,6 +50,7 @@ pub enum Expr {
     },
     Grouping(BoxedExpr),
     Literal(Value),
+    Identifier(Token),
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -86,6 +91,9 @@ impl Expr {
             right: BoxedExpr::new(right),
         }
     }
+    pub fn identifer(identifier: Token) -> Self {
+        Self::Identifier(identifier)
+    }
 }
 
 impl Display for Expr {
@@ -105,6 +113,7 @@ impl Display for Expr {
             Expr::Literal(Value::String(s)) => write!(f, "{s}"),
             Expr::Literal(Value::Nil) => write!(f, "nil"),
             Expr::Literal(Value::Number(n)) => write!(f, "{n:?}"),
+            Expr::Identifier(Token { lexeme, .. }) => write!(f, "{lexeme}"),
         }
     }
 }

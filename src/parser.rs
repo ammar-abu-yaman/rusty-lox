@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::{
     log,
     scanner::Scanner,
-    syntax::{Ast, Expr, ExpressionStatement, PrintStatement, Statement, Value},
+    syntax::{Ast, DeclarationStatement, Expr, ExpressionStatement, PrintStatement, Statement, Value},
     token::{Literal, Token, TokenType},
 };
 
@@ -44,11 +44,11 @@ impl Default for RecursiveDecendantParser {
 impl LoxParser for RecursiveDecendantParser {
     fn parse(&mut self, scanner: &mut Scanner) -> Option<Ast> {
         self.tokens = scanner.scan_all();
-        let expr = self.statements();
-        if expr.is_err() {
+        let statements = self.program();
+        if statements.is_err() {
             return None;
         }
-        Some(Ast::new(expr.unwrap()))
+        Some(Ast::new(statements.unwrap()))
     }
 
     fn parse_expr(&mut self, scanner: &mut Scanner) -> Option<Expr> {
@@ -62,37 +62,51 @@ impl LoxParser for RecursiveDecendantParser {
 }
 
 impl RecursiveDecendantParser {
-    fn statements(&mut self) -> Result<Vec<Statement>, ParseError> {
+    fn program(&mut self) -> Result<Vec<Statement>, ParseError> {
         let mut statements = vec![];
-        loop {
-            use TokenType::*;
-            match self.peek().token_type {
-                Eof => break,
-                Print => statements.push(Statement::Print(self.print_statement()?)),
-                _ => statements.push(Statement::Expression(self.expression_statement()?)),
-            }
+        while self.peek().token_type != TokenType::Eof {
+            statements.push(self.declaration()?);
         }
         Ok(statements)
+    }
+
+    fn declaration(&mut self) -> Result<Statement, ParseError> {
+        use TokenType::*;
+        match self.peek().token_type {
+            Var => Ok(self.decl_statement()?),
+            _ => Ok(self.statement()?),
+        }
+    }
+
+    fn statement(&mut self) -> Result<Statement, ParseError> {
+        use TokenType::*;
+        match self.peek().token_type {
+            Print => Ok(Statement::Print(self.print_statement()?)),
+            _ => Ok(Statement::Expression(self.expression_statement()?)),
+        }
+    }
+
+    fn decl_statement(&mut self) -> Result<Statement, ParseError> {
+        self.consume(TokenType::Var, "Expect 'var' before variable name.")?;
+        let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
+        self.consume(TokenType::Asign, "Expect '=' after variable name.")?;
+        let initializer = self.expression()?;
+        self.consume(TokenType::SemiColon, "Expect ';' after variable declaration.")?;
+        Ok(Statement::Decl(DeclarationStatement { name, initializer }))
     }
 
     fn print_statement(&mut self) -> Result<PrintStatement, ParseError> {
         let print_token = self.advance();
         let expr = self.expression()?;
-        let semi = self.consume(TokenType::SemiColon, "Expect ';' after expression.")?;
-        Ok(PrintStatement {
-            print_token,
-            expr,
-            semi,
-        })
+        self.consume(TokenType::SemiColon, "Expect ';' after expression.")?;
+        Ok(PrintStatement { print_token, expr })
     }
 
     fn expression_statement(&mut self) -> Result<ExpressionStatement, ParseError> {
         let expr = self.expression()?;
-        let semi = self.consume(TokenType::SemiColon, "Expect ';' after expression.")?;
-        Ok(ExpressionStatement { expr, semi })
+        self.consume(TokenType::SemiColon, "Expect ';' after expression.")?;
+        Ok(ExpressionStatement { expr })
     }
-
-
 
     fn expression(&mut self) -> Result<Expr, ParseError> {
         self.equality()
@@ -202,7 +216,11 @@ impl RecursiveDecendantParser {
                 let expr = self.expression()?;
                 self.consume(RightParen, "Expect ')' after expression.")?;
                 Ok(Expr::grouping(expr))
-            }
+            },
+            token @ Token {
+                token_type: Identifier,
+                ..
+            } => Ok(Expr::Identifier(token.clone())),
             token => {
                 log::error_token(&token, "Expected expression.");
                 Err(ParseError::ExpressionError)
@@ -228,9 +246,7 @@ impl RecursiveDecendantParser {
 
     fn consume(&mut self, tt: TokenType, message: impl Into<String>) -> Result<Token, ParseError> {
         match self.peek() {
-            Token { token_type, .. } if token_type == &tt => {
-                Ok(self.advance())
-            }
+            Token { token_type, .. } if token_type == &tt => Ok(self.advance()),
             token => {
                 log::error_token(token, &message.into());
                 Err(ParseError::UnexpectedToken)
