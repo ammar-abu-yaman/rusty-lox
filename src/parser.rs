@@ -97,8 +97,13 @@ impl RecursiveDecendantParser {
     fn decl_statement(&mut self) -> Result<Statement, ParseError> {
         self.consume(TokenType::Var, "Expect 'var' before variable name.")?;
         let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
-        self.consume(TokenType::Asign, "Expect '=' after variable name.")?;
-        let initializer = self.expression()?;
+        let initializer = match self.peek().token_type {
+            TokenType::Asign => {
+                self.advance();
+                Some(self.expression()?)
+            },
+            _ => None,
+        };
         self.consume(TokenType::SemiColon, "Expect ';' after variable declaration.")?;
         Ok(Statement::Decl(DeclarationStatement { name, initializer }))
     }

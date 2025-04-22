@@ -53,7 +53,11 @@ impl TreeWalk {
 
     fn eval_decl_stmt(&mut self, stmt: &DeclarationStatement) -> Result<()> {
         let name = stmt.name.lexeme.clone();
-        let value = self.eval_expr(&stmt.initializer)?;
+        let value = match &stmt.initializer {
+            Some(initializer) => self.eval_expr(initializer)?,
+            None => Value::Nil,
+            
+        };
         self.globals.insert(
             name.clone(),
             Variable {

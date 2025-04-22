@@ -23,7 +23,7 @@ pub type BoxedExpr = Box<Expr>;
 #[derive(Debug)]
 pub struct DeclarationStatement {
     pub name: Token,
-    pub initializer: Expr,
+    pub initializer: Option<Expr>,
 }
 
 #[derive(Debug)]
