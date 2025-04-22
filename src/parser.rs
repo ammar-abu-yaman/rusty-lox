@@ -16,6 +16,7 @@ pub trait LoxParser {
 pub struct RecursiveDecendantParser {
     tokens: Vec<Token>,
     current: usize,
+    has_error: bool,
 }
 
 #[derive(Error, Debug)]
@@ -31,6 +32,7 @@ impl RecursiveDecendantParser {
         Self {
             tokens: vec![],
             current: 0,
+            has_error: false,
         }
     }
 }
@@ -45,10 +47,10 @@ impl LoxParser for RecursiveDecendantParser {
     fn parse(&mut self, scanner: &mut Scanner) -> Option<Ast> {
         self.tokens = scanner.scan_all();
         let statements = self.program();
-        if statements.is_err() {
+        if self.has_error {
             return None;
         }
-        Some(Ast::new(statements.unwrap()))
+        Some(Ast::new(statements))
     }
 
     fn parse_expr(&mut self, scanner: &mut Scanner) -> Option<Expr> {
@@ -62,12 +64,18 @@ impl LoxParser for RecursiveDecendantParser {
 }
 
 impl RecursiveDecendantParser {
-    fn program(&mut self) -> Result<Vec<Statement>, ParseError> {
+    fn program(&mut self) -> Vec<Statement> {
         let mut statements = vec![];
         while self.peek().token_type != TokenType::Eof {
-            statements.push(self.declaration()?);
+            match self.declaration() {
+                Ok(stmt) => statements.push(stmt),
+                Err(_) => {
+                    self.has_error = true;
+                    self.synchronize();
+                },    
+            }
         }
-        Ok(statements)
+        statements
     }
 
     fn declaration(&mut self) -> Result<Statement, ParseError> {
@@ -98,7 +106,7 @@ impl RecursiveDecendantParser {
     fn print_statement(&mut self) -> Result<PrintStatement, ParseError> {
         let print_token = self.advance();
         let expr = self.expression()?;
-        self.consume(TokenType::SemiColon, "Expect ';' after expression.")?;
+        self.consume(TokenType::SemiColon, "Expect ';' after value.")?;
         Ok(PrintStatement { print_token, expr })
     }
 
@@ -252,5 +260,19 @@ impl RecursiveDecendantParser {
                 Err(ParseError::UnexpectedToken)
             }
         }
+    }
+
+    fn synchronize(&mut self) {
+        use TokenType::*;
+        let token = self.advance();
+        while token.token_type != Eof {
+            if token.token_type == SemiColon {
+                return;
+            }
+            match self.peek().token_type {
+                Class | Fun | Var | For | If | While | Print | Return => return,
+                _ => {}
+            }
+        } 
     }
 }

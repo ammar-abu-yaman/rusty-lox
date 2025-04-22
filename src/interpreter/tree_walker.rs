@@ -86,7 +86,12 @@ impl TreeWalk {
             Expr::Unary { operator, expr } => self.eval_unary(operator, expr),
             Expr::Grouping(expr) => self.eval_expr(expr),
             Expr::Literal(value) => Ok(value.clone()),
-            Expr::Identifier(token) => Ok(self.globals.get(&token.lexeme).unwrap().value.clone()),
+            Expr::Identifier(token) => {
+                match self.lookup(&token.lexeme) {
+                    Some(var) => Ok(var.value.clone()),
+                    None => Err(RuntimeError::UndefinedVariable { token: token.clone() })
+                }
+            },
         }
     }
     
@@ -141,6 +146,12 @@ impl TreeWalk {
             TokenType::Not => Ok(Value::Bool(!is_true(&value))),
             _ => panic!("Invalid unary operator"),
         }
+    }
+}
+
+impl TreeWalk {
+    fn lookup(&self, name: &str) -> Option<&Variable> {
+        self.globals.get(name)
     }
 }
 
