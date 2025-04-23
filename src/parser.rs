@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::{
     log,
     scanner::Scanner,
-    syntax::{Ast, DeclarationStatement, Expr, ExpressionStatement, PrintStatement, Statement, Value},
+    syntax::{Ast, BlockStatement, DeclarationStatement, Expr, ExpressionStatement, PrintStatement, Statement, Value},
     token::{Literal, Token, TokenType},
 };
 
@@ -90,6 +90,7 @@ impl RecursiveDecendantParser {
         use TokenType::*;
         match self.peek().token_type {
             Print => Ok(Statement::Print(self.print_statement()?)),
+            LeftBrace => Ok(Statement::Block(self.block_statement()?)),
             _ => Ok(Statement::Expression(self.expression_statement()?)),
         }
     }
@@ -106,6 +107,17 @@ impl RecursiveDecendantParser {
         };
         self.consume(TokenType::SemiColon, "Expect ';' after variable declaration.")?;
         Ok(Statement::Decl(DeclarationStatement { name, initializer }))
+    }
+
+    fn block_statement(&mut self) -> Result<BlockStatement, ParseError> {
+        let mut statements = vec![];
+        self.consume(TokenType::LeftBrace, "Expect '{' before block.")?;
+        while !matches!(self.peek().token_type, TokenType::RightBrace | TokenType::Eof) {
+            let statement = self.declaration()?;
+            statements.push(statement);
+        }
+        self.consume(TokenType::RightBrace, "Expect '}' after block.")?;
+        Ok(BlockStatement { statements })
     }
 
     fn print_statement(&mut self) -> Result<PrintStatement, ParseError> {

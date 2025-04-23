@@ -16,6 +16,7 @@ pub enum Statement {
     Decl(DeclarationStatement),
     Print(PrintStatement),
     Expression(ExpressionStatement),
+    Block(BlockStatement),
 }
 
 pub type BoxedExpr = Box<Expr>;
@@ -30,6 +31,10 @@ pub struct DeclarationStatement {
 pub struct PrintStatement {
     pub print_token: Token,
     pub expr: Expr,
+}
+
+pub struct BlockStatement {
+    pub statements: Vec<Statement>,
 }
 
 #[derive(Debug)]

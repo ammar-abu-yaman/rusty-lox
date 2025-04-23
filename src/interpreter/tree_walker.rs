@@ -1,18 +1,18 @@
 use super::{data::{Result, RuntimeError, Variable}, env::Environment, Evaluator, Interpreter};
 
 use crate::{
-    syntax::{Ast, DeclarationStatement, Expr, ExpressionStatement, PrintStatement, Statement, Value},
+    syntax::{Ast, BlockStatement, DeclarationStatement, Expr, ExpressionStatement, PrintStatement, Statement, Value},
     token::{Token, TokenType},
 };
 
 pub struct TreeWalk {
-    global_env: Environment,
+    environment: Environment,
 }
 
 impl TreeWalk {
     pub fn new() -> Self {
         Self {
-            global_env: Environment::new(),
+            environment: Environment::new(),
         }
     }
 }
@@ -43,6 +43,7 @@ impl TreeWalk {
         match statement {
             Statement::Decl(declaration_statement) => self.eval_decl_stmt(declaration_statement),
             Statement::Print(print_statement) => self.eval_print_stmt(print_statement),
+            Statement::Block(block_statement) => self.eval_block_stmt(block_statement),
             Statement::Expression(expression_statement) => self.eval_expr_stmt(expression_statement),
         }
     }
@@ -54,7 +55,7 @@ impl TreeWalk {
             None => Value::Nil,
             
         };
-        self.global_env.define(name.clone(), Variable {
+        self.environment.define(name.clone(), Variable {
             token: stmt.name.clone(),
             name,
             value,
@@ -65,6 +66,15 @@ impl TreeWalk {
     fn eval_print_stmt(&mut self, stmt: &PrintStatement) -> Result<()> {
         let value = self.eval_expr(&stmt.expr)?;
         println!("{}", value);
+        Ok(())
+    }
+
+    fn eval_block_stmt(&mut self, stmt:&BlockStatement) -> Result<()> {
+        self.environment.push_env();
+        for statement in &stmt.statements {
+            self.eval_stmt(statement)?;
+        }
+        self.environment.pop_env();
         Ok(())
     }
     
@@ -82,7 +92,7 @@ impl TreeWalk {
                     name: name.lexeme.clone(),
                     value: value.clone(),
                 };
-                self.global_env.assign(name.clone(), variable)?;
+                self.environment.assign(name.clone(), variable)?;
                 Ok(value)
             },
             Expr::Binary {
@@ -94,7 +104,7 @@ impl TreeWalk {
             Expr::Grouping(expr) => self.eval_expr(expr),
             Expr::Literal(value) => Ok(value.clone()),
             Expr::Variable(token) => {
-                match self.global_env.get(&token.lexeme) {
+                match self.environment.get(&token.lexeme) {
                     Some(var) => Ok(var.value.clone()),
                     None => Err(RuntimeError::UndefinedVariable { token: token.clone() })
                 }
