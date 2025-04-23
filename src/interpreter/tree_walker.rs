@@ -72,7 +72,13 @@ impl TreeWalk {
     fn eval_block_stmt(&mut self, stmt:&BlockStatement) -> Result<()> {
         self.environment.push_env();
         for statement in &stmt.statements {
-            self.eval_stmt(statement)?;
+            match self.eval_stmt(statement) {
+                Ok(()) => continue,
+                err @ Err(_) => {
+                    self.environment.pop_env();
+                    return err
+                }, 
+            }
         }
         self.environment.pop_env();
         Ok(())
