@@ -1,22 +1,18 @@
-use std::collections::HashMap;
-
-use super::{data::{Result, RuntimeError, Variable}, Evaluator, Interpreter};
+use super::{data::{Result, RuntimeError, Variable}, env::Environment, Evaluator, Interpreter};
 
 use crate::{
     syntax::{Ast, DeclarationStatement, Expr, ExpressionStatement, PrintStatement, Statement, Value},
     token::{Token, TokenType},
 };
 
-type GlobalVarStore = HashMap<String, Variable>;
-
 pub struct TreeWalk {
-    globals: GlobalVarStore,
+    global_env: Environment,
 }
 
 impl TreeWalk {
     pub fn new() -> Self {
         Self {
-            globals: GlobalVarStore::new(),
+            global_env: Environment::new(),
         }
     }
 }
@@ -58,14 +54,11 @@ impl TreeWalk {
             None => Value::Nil,
             
         };
-        self.globals.insert(
-            name.clone(),
-            Variable {
-                token: stmt.name.clone(),
-                name,
-                value,
-            },
-        );
+        self.global_env.define(name.clone(), Variable {
+            token: stmt.name.clone(),
+            name,
+            value,
+        });
         Ok(())
     }
 
@@ -82,6 +75,16 @@ impl TreeWalk {
     
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value> {
         match expr {
+            Expr::Asign { name, value } => {
+                let value = self.eval_expr(value)?;
+                let variable = Variable {
+                    token: name.clone(),
+                    name: name.lexeme.clone(),
+                    value: value.clone(),
+                };
+                self.global_env.assign(name.clone(), variable)?;
+                Ok(value)
+            },
             Expr::Binary {
                 left,
                 operator,
@@ -90,8 +93,8 @@ impl TreeWalk {
             Expr::Unary { operator, expr } => self.eval_unary(operator, expr),
             Expr::Grouping(expr) => self.eval_expr(expr),
             Expr::Literal(value) => Ok(value.clone()),
-            Expr::Identifier(token) => {
-                match self.lookup(&token.lexeme) {
+            Expr::Variable(token) => {
+                match self.global_env.get(&token.lexeme) {
                     Some(var) => Ok(var.value.clone()),
                     None => Err(RuntimeError::UndefinedVariable { token: token.clone() })
                 }
@@ -152,13 +155,6 @@ impl TreeWalk {
         }
     }
 }
-
-impl TreeWalk {
-    fn lookup(&self, name: &str) -> Option<&Variable> {
-        self.globals.get(name)
-    }
-}
-
 
 const fn is_true(value: &Value) -> bool {
     match value {

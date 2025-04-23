@@ -2,6 +2,7 @@ use crate::syntax::{Ast, Expr, Value};
 
 mod data;
 mod tree_walker;
+mod env;
 
 pub use data::{Result, RuntimeError};
 pub use tree_walker::TreeWalk;

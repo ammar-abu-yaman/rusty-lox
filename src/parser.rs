@@ -122,7 +122,21 @@ impl RecursiveDecendantParser {
     }
 
     fn expression(&mut self) -> Result<Expr, ParseError> {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> Result<Expr, ParseError> {
+        let expr = self.equality()?;
+        if self.peek().token_type == TokenType::Asign {
+            let equals = self.advance();
+            let value = self.assignment()?;
+            if let Expr::Variable(name) = &expr {
+                return Ok(Expr::assign(name.clone(), value));
+            }
+            self.has_error = true;
+            log::error_token(&equals, "Invalid assignment target.");
+        }
+        Ok(expr)
     }
 
     fn equality(&mut self) -> Result<Expr, ParseError> {
@@ -233,7 +247,7 @@ impl RecursiveDecendantParser {
             token @ Token {
                 token_type: Identifier,
                 ..
-            } => Ok(Expr::Identifier(token.clone())),
+            } => Ok(Expr::Variable(token.clone())),
             token => {
                 log::error_token(&token, "Expected expression.");
                 Err(ParseError::ExpressionError)

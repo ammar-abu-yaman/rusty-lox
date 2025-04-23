@@ -39,6 +39,10 @@ pub struct ExpressionStatement {
 
 #[derive(Debug)]
 pub enum Expr {
+    Asign {
+        name: Token,
+        value: BoxedExpr,
+    },
     Binary {
         left: BoxedExpr,
         operator: Token,
@@ -50,7 +54,8 @@ pub enum Expr {
     },
     Grouping(BoxedExpr),
     Literal(Value),
-    Identifier(Token),
+    Variable(Token),
+
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -91,14 +96,25 @@ impl Expr {
             right: BoxedExpr::new(right),
         }
     }
-    pub fn identifer(identifier: Token) -> Self {
-        Self::Identifier(identifier)
+
+    pub fn variable(identifier: Token) -> Self {
+        Self::Variable(identifier)
+    }
+
+    pub fn assign(name: Token, value: Expr) -> Self {
+        Self::Asign {
+            name,
+            value: BoxedExpr::new(value),
+        }
     }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Expr::Asign { name: Token { lexeme, .. }, value } => {
+                write!(f, "(= {lexeme} {value})")
+            }
             Expr::Binary {
                 left,
                 operator: Token { lexeme, .. },
@@ -113,7 +129,7 @@ impl Display for Expr {
             Expr::Literal(Value::String(s)) => write!(f, "{s}"),
             Expr::Literal(Value::Nil) => write!(f, "nil"),
             Expr::Literal(Value::Number(n)) => write!(f, "{n:?}"),
-            Expr::Identifier(Token { lexeme, .. }) => write!(f, "{lexeme}"),
+            Expr::Variable(Token { lexeme, .. }) => write!(f, "{lexeme}"),
         }
     }
 }
