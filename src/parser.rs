@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::{
     log,
     scanner::Scanner,
-    syntax::{Ast, BlockStatement, DeclarationStatement, Expr, ExpressionStatement, PrintStatement, Statement, Value},
+    syntax::{Ast, BlockStatement, BoxedStatement, DeclarationStatement, Expr, ExpressionStatement, IfStatemnet, PrintStatement, Statement, Value},
     token::{Literal, Token, TokenType},
 };
 
@@ -91,6 +91,7 @@ impl RecursiveDecendantParser {
         match self.peek().token_type {
             Print => Ok(Statement::Print(self.print_statement()?)),
             LeftBrace => Ok(Statement::Block(self.block_statement()?)),
+            If => Ok(Statement::If(self.if_statement()?)),
             _ => Ok(Statement::Expression(self.expression_statement()?)),
         }
     }
@@ -118,6 +119,27 @@ impl RecursiveDecendantParser {
         }
         self.consume(TokenType::RightBrace, "Expect '}' after block.")?;
         Ok(BlockStatement { statements })
+    }
+
+    fn if_statement(&mut self) -> Result<IfStatemnet, ParseError> {
+        self.consume(TokenType::If, "Expect 'if' before condition.")?;
+        self.consume(TokenType::LeftParen, "Expect '(' after 'if'.")?;
+
+        let condition = self.expression()?;
+        self.consume(TokenType::RightParen, "Expect ')' after condition.")?;
+        let if_branch = BoxedStatement::new(self.statement()?);
+        let else_branch = match self.peek().token_type {
+            TokenType::Else => {
+                self.advance();
+                Some(BoxedStatement::new(self.statement()?))
+            }
+            _ => None,
+        };
+        Ok(IfStatemnet {
+            condition,
+            if_branch,
+            else_branch,
+        })
     }
 
     fn print_statement(&mut self) -> Result<PrintStatement, ParseError> {

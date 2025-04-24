@@ -2,6 +2,9 @@ use std::fmt::Display;
 
 use crate::token::Token;
 
+pub type BoxedExpr = Box<Expr>;
+pub type BoxedStatement = Box<Statement>;
+
 pub struct Ast {
     pub statements: Vec<Statement>,
 }
@@ -17,9 +20,8 @@ pub enum Statement {
     Print(PrintStatement),
     Expression(ExpressionStatement),
     Block(BlockStatement),
+    If(IfStatemnet)
 }
-
-pub type BoxedExpr = Box<Expr>;
 
 #[derive(Debug)]
 pub struct DeclarationStatement {
@@ -35,6 +37,12 @@ pub struct PrintStatement {
 
 pub struct BlockStatement {
     pub statements: Vec<Statement>,
+}
+
+pub struct IfStatemnet {
+    pub condition: Expr,
+    pub if_branch: BoxedStatement,
+    pub else_branch: Option<BoxedStatement>,
 }
 
 #[derive(Debug)]

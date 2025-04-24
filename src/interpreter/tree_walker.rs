@@ -1,7 +1,7 @@
 use super::{data::{Result, RuntimeError, Variable}, env::Environment, Evaluator, Interpreter};
 
 use crate::{
-    syntax::{Ast, BlockStatement, DeclarationStatement, Expr, ExpressionStatement, PrintStatement, Statement, Value},
+    syntax::{Ast, BlockStatement, DeclarationStatement, Expr, ExpressionStatement, IfStatemnet, PrintStatement, Statement, Value},
     token::{Token, TokenType},
 };
 
@@ -45,6 +45,7 @@ impl TreeWalk {
             Statement::Print(print_statement) => self.eval_print_stmt(print_statement),
             Statement::Block(block_statement) => self.eval_block_stmt(block_statement),
             Statement::Expression(expression_statement) => self.eval_expr_stmt(expression_statement),
+            Statement::If(if_statement) => self.eval_if_stmt(if_statement),
         }
     }
 
@@ -86,6 +87,16 @@ impl TreeWalk {
     
     fn eval_expr_stmt(&mut self, stmt: &ExpressionStatement) -> Result<()> {
         self.eval_expr(&stmt.expr)?;
+        Ok(())
+    }
+
+    fn eval_if_stmt(&mut self, stmt: &IfStatemnet) -> Result<()> {
+        let condition_result = self.eval_expr(&stmt.condition)?;
+        if is_true(&condition_result) {
+            self.eval_stmt(&stmt.if_branch)?;
+        } else if let Some(stmt) = &stmt.else_branch {
+            self.eval_stmt(&stmt)?;
+        }
         Ok(())
     }
     
