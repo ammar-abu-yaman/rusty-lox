@@ -160,7 +160,7 @@ impl RecursiveDecendantParser {
     }
 
     fn assignment(&mut self) -> Result<Expr, ParseError> {
-        let expr = self.equality()?;
+        let expr = self.logical_or()?;
         if self.peek().token_type == TokenType::Asign {
             let equals = self.advance();
             let value = self.assignment()?;
@@ -169,6 +169,26 @@ impl RecursiveDecendantParser {
             }
             self.has_error = true;
             log::error_token(&equals, "Invalid assignment target.");
+        }
+        Ok(expr)
+    }
+
+    fn logical_or(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.logical_and()?;
+        while let Token { token_type: TokenType::Or, .. } = self.peek() {
+            self.advance();
+            let right = self.logical_and()?;
+            expr = Expr::or(expr, right);
+        }
+        Ok(expr)
+    }
+
+    fn logical_and(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.equality()?;
+        while let Token { token_type: TokenType::And, ..} = self.peek() {
+            self.advance();
+            let right = self.equality()?;
+            expr = Expr::and(expr, right);
         }
         Ok(expr)
     }

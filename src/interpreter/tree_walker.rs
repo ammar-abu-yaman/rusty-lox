@@ -126,6 +126,26 @@ impl TreeWalk {
                     None => Err(RuntimeError::UndefinedVariable { token: token.clone() })
                 }
             },
+            Expr::LogicalOr { left, right } => self.eval_or(left, right),
+            Expr::LogicalAnd { left, right } => self.eval_and(left, right),
+        }
+    }
+
+    fn eval_or(&mut self, left: &Expr, right: &Expr) -> Result<Value> {
+        let left_value = self.eval_expr(left)?;
+        if is_true(&left_value) {
+            return Ok(left_value);
+        } else {
+            return Ok(self.eval_expr(right)?);
+        }
+    }
+
+    fn eval_and(&mut self, left: &Expr, right: &Expr) -> Result<Value> {
+        let left_value = self.eval_expr(left)?;
+        if !is_true(&left_value) {
+            return Ok(left_value);
+        } else {
+            return Ok(self.eval_expr(right)?);
         }
     }
     

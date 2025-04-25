@@ -68,7 +68,14 @@ pub enum Expr {
     Grouping(BoxedExpr),
     Literal(Value),
     Variable(Token),
-
+    LogicalOr{
+        left: BoxedExpr,
+        right: BoxedExpr,
+    },
+    LogicalAnd {
+        left: BoxedExpr,
+        right: BoxedExpr,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -120,29 +127,45 @@ impl Expr {
             value: BoxedExpr::new(value),
         }
     }
+
+    pub fn or(left: Expr, right: Expr) -> Self {
+        Self::LogicalOr { 
+            left: BoxedExpr::new(left),
+            right: BoxedExpr::new(right), 
+        }
+    }
+
+    pub fn and(left: Expr, right: Expr) -> Self {
+        Self::LogicalAnd { 
+            left: BoxedExpr::new(left),
+            right: BoxedExpr::new(right), 
+        }
+    }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Asign { name: Token { lexeme, .. }, value } => {
-                write!(f, "(= {lexeme} {value})")
-            }
+                        write!(f, "(= {lexeme} {value})")
+                    }
             Expr::Binary {
-                left,
-                operator: Token { lexeme, .. },
-                right,
-            } => write!(f, "({lexeme} {left} {right})"),
+                        left,
+                        operator: Token { lexeme, .. },
+                        right,
+                    } => write!(f, "({lexeme} {left} {right})"),
             Expr::Unary {
-                operator: Token { lexeme, .. },
-                expr,
-            } => write!(f, "({lexeme} {expr})"),
+                        operator: Token { lexeme, .. },
+                        expr,
+                    } => write!(f, "({lexeme} {expr})"),
             Expr::Grouping(expr) => write!(f, "(group {expr})"),
             Expr::Literal(Value::Bool(b)) => write!(f, "{b}"),
             Expr::Literal(Value::String(s)) => write!(f, "{s}"),
             Expr::Literal(Value::Nil) => write!(f, "nil"),
             Expr::Literal(Value::Number(n)) => write!(f, "{n:?}"),
             Expr::Variable(Token { lexeme, .. }) => write!(f, "{lexeme}"),
+            Expr::LogicalOr { left, right } => write!(f, "(or {left} {right})"),
+            Expr::LogicalAnd { left, right } => write!(f, "(and {left} {right})"),
         }
     }
 }
