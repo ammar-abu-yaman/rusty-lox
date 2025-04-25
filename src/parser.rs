@@ -4,7 +4,7 @@ use thiserror::Error;
 use crate::{
     log,
     scanner::Scanner,
-    syntax::{Ast, BlockStatement, BoxedStatement, DeclarationStatement, Expr, ExpressionStatement, IfStatemnet, PrintStatement, Statement, Value},
+    syntax::{Ast, BlockStatement, BoxedStatement, DeclarationStatement, Expr, ExpressionStatement, IfStatemnet, PrintStatement, Statement, Value, WhileStatement},
     token::{Literal, Token, TokenType},
 };
 
@@ -92,6 +92,7 @@ impl RecursiveDecendantParser {
             Print => Ok(Statement::Print(self.print_statement()?)),
             LeftBrace => Ok(Statement::Block(self.block_statement()?)),
             If => Ok(Statement::If(self.if_statement()?)),
+            While => Ok(Statement::While(self.while_statement()?)),
             _ => Ok(Statement::Expression(self.expression_statement()?)),
         }
     }
@@ -140,6 +141,15 @@ impl RecursiveDecendantParser {
             if_branch,
             else_branch,
         })
+    }
+
+    fn while_statement(&mut self) -> Result<WhileStatement, ParseError> {
+        self.consume(TokenType::While, "Expect 'while' before condition.")?;
+        self.consume(TokenType::LeftParen, "Expect '(' after 'while'.")?;
+        let condition = self.expression()?;
+        self.consume(TokenType::RightParen, "Expect ')' after condition.")?;
+        let body = BoxedStatement::new(self.statement()?);
+        Ok(WhileStatement { condition, body })
     }
 
     fn print_statement(&mut self) -> Result<PrintStatement, ParseError> {

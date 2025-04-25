@@ -1,7 +1,7 @@
 use super::{data::{Result, RuntimeError, Variable}, env::Environment, Evaluator, Interpreter};
 
 use crate::{
-    syntax::{Ast, BlockStatement, DeclarationStatement, Expr, ExpressionStatement, IfStatemnet, PrintStatement, Statement, Value},
+    syntax::{Ast, BlockStatement, DeclarationStatement, Expr, ExpressionStatement, IfStatemnet, PrintStatement, Statement, Value, WhileStatement},
     token::{Token, TokenType},
 };
 
@@ -46,6 +46,7 @@ impl TreeWalk {
             Statement::Block(block_statement) => self.eval_block_stmt(block_statement),
             Statement::Expression(expression_statement) => self.eval_expr_stmt(expression_statement),
             Statement::If(if_statement) => self.eval_if_stmt(if_statement),
+            Statement::While(while_statement) => self.eval_while_stmt(while_statement),
         }
     }
 
@@ -99,6 +100,14 @@ impl TreeWalk {
         }
         Ok(())
     }
+
+    fn eval_while_stmt(&mut self, stmt: &WhileStatement) -> Result<()> {
+        while is_true(&self.eval_expr(&stmt.condition)?) {
+            self.eval_stmt(&stmt.body)?;
+        }
+        Ok(())
+    }
+
     
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value> {
         match expr {

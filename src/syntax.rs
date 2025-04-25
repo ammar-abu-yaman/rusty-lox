@@ -20,7 +20,8 @@ pub enum Statement {
     Print(PrintStatement),
     Expression(ExpressionStatement),
     Block(BlockStatement),
-    If(IfStatemnet)
+    If(IfStatemnet),
+    While(WhileStatement),
 }
 
 #[derive(Debug)]
@@ -43,6 +44,11 @@ pub struct IfStatemnet {
     pub condition: Expr,
     pub if_branch: BoxedStatement,
     pub else_branch: Option<BoxedStatement>,
+}
+
+pub struct WhileStatement {
+    pub condition: Expr,
+    pub body: BoxedStatement,
 }
 
 #[derive(Debug)]
