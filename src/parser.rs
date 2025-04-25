@@ -317,8 +317,37 @@ impl RecursiveDecendantParser {
                 let expr = self.unary()?;
                 return Ok(Expr::unary(opr, expr));
             }
-            _ => self.primary(),
+            _ => self.call(),
         }
+    }
+
+    fn call(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.primary()?;
+        while let TokenType::LeftParen = self.peek().token_type {
+            self.advance();
+            let args = match self.peek().token_type {
+                TokenType::RightParen => vec![],
+                _ => self.arguments()?,
+            };
+            if args.len() >= 255 {
+                self.has_error = true;
+                log::error_token(self.peek(), "Can't have more than 255 arguments.");
+            }
+            let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments.")?;
+            expr = Expr::call(expr, paren, args);
+        }
+        Ok(expr)
+    }
+
+    fn arguments(&mut self) -> Result<Vec<Expr>, ParseError> {
+        let expr = self.expression()?;
+        let mut args = vec![expr];
+        while let TokenType::Comma = self.peek().token_type {
+            self.advance();
+            let expr = self.expression()?;
+            args.push(expr);
+        }
+        Ok(args)
     }
 
     fn primary(&mut self) -> Result<Expr, ParseError> {

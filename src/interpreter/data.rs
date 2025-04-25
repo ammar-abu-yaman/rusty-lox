@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::{syntax::Value, token::Token};
+use crate::token::Token;
 
 pub type Result<T> = anyhow::Result<T, RuntimeError>;
 
@@ -10,10 +10,8 @@ pub enum RuntimeError {
     IncompatibleOperandType { operator: Token, message: String },
     #[error("Undefined variable '{}'.\n[line {}]", token.lexeme, token.pos.line)]
     UndefinedVariable { token: Token },
-}
-
-pub struct Variable {
-    pub token: Token,
-    pub name: String,
-    pub value: Value,
+    #[error("Can only call functions and classes.\n[line {}]", token.pos.line)]
+    NotValidCallable { token: Token },
+    #[error("Expected {expected} arguments but got {actual}.\n[line {}]", token.pos.line)]
+    InvalidArgumentCount { token: Token, expected: usize, actual: usize },
 }

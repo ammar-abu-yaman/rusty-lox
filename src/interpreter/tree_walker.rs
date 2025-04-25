@@ -1,18 +1,21 @@
-use super::{data::{Result, RuntimeError, Variable}, env::Environment, Evaluator, Interpreter};
+use super::{data::{Result, RuntimeError}, env::{BoxedEnvironment, Environment}, Evaluator, Interpreter};
 
 use crate::{
-    syntax::{Ast, BlockStatement, DeclarationStatement, Expr, ExpressionStatement, IfStatemnet, PrintStatement, Statement, Value, WhileStatement},
-    token::{Token, TokenType},
+    function::{Callable, CallableVariant, NativeFunction}, syntax::{Ast, BlockStatement, DeclarationStatement, Expr, ExpressionStatement, IfStatemnet, PrintStatement, Statement, Value, WhileStatement}, token::{Token, TokenType}
 };
 
 pub struct TreeWalk {
-    environment: Environment,
+    globals: BoxedEnvironment,
+    environment: BoxedEnvironment,
 }
 
 impl TreeWalk {
     pub fn new() -> Self {
+        let globals = Environment::boxed();
+        globals.borrow_mut().define("clock", Value::Function(CallableVariant::Native(NativeFunction::clock())));
         Self {
-            environment: Environment::new(),
+            environment: Environment::boxed_with_enclosing(&globals),
+            globals,
         }
     }
 }
@@ -43,7 +46,7 @@ impl TreeWalk {
         match statement {
             Statement::Decl(declaration_statement) => self.eval_decl_stmt(declaration_statement),
             Statement::Print(print_statement) => self.eval_print_stmt(print_statement),
-            Statement::Block(block_statement) => self.eval_block_stmt(block_statement),
+            Statement::Block(block_statement) => self.eval_block_stmt(block_statement, Environment::boxed_with_enclosing(&self.environment)),
             Statement::Expression(expression_statement) => self.eval_expr_stmt(expression_statement),
             Statement::If(if_statement) => self.eval_if_stmt(if_statement),
             Statement::While(while_statement) => self.eval_while_stmt(while_statement),
@@ -57,11 +60,7 @@ impl TreeWalk {
             None => Value::Nil,
             
         };
-        self.environment.define(name.clone(), Variable {
-            token: stmt.name.clone(),
-            name,
-            value,
-        });
+        self.environment.borrow_mut().define(name, value);
         Ok(())
     }
 
@@ -71,18 +70,22 @@ impl TreeWalk {
         Ok(())
     }
 
-    fn eval_block_stmt(&mut self, stmt:&BlockStatement) -> Result<()> {
-        self.environment.push_env();
+    fn eval_block_stmt(&mut self, stmt: &BlockStatement, env: BoxedEnvironment) -> Result<()> {
+        self.environment = env;
         for statement in &stmt.statements {
             match self.eval_stmt(statement) {
                 Ok(()) => continue,
                 err @ Err(_) => {
-                    self.environment.pop_env();
+                    self.environment = unsafe { 
+                        self.environment.try_borrow_unguarded().unwrap().enclosing.clone().unwrap()
+                    };
                     return err
                 }, 
             }
         }
-        self.environment.pop_env();
+        self.environment = unsafe { 
+            self.environment.try_borrow_unguarded().unwrap().enclosing.clone().unwrap()
+        };
         Ok(())
     }
     
@@ -113,12 +116,7 @@ impl TreeWalk {
         match expr {
             Expr::Asign { name, value } => {
                 let value = self.eval_expr(value)?;
-                let variable = Variable {
-                    token: name.clone(),
-                    name: name.lexeme.clone(),
-                    value: value.clone(),
-                };
-                self.environment.assign(name.clone(), variable)?;
+                self.environment.borrow_mut().assign(name.clone(), value.clone())?;
                 Ok(value)
             },
             Expr::Binary {
@@ -130,13 +128,14 @@ impl TreeWalk {
             Expr::Grouping(expr) => self.eval_expr(expr),
             Expr::Literal(value) => Ok(value.clone()),
             Expr::Variable(token) => {
-                match self.environment.get(&token.lexeme) {
-                    Some(var) => Ok(var.value.clone()),
+                match self.environment.borrow_mut().get(&token.lexeme) {
+                    Some(value) => Ok(value.clone()),
                     None => Err(RuntimeError::UndefinedVariable { token: token.clone() })
                 }
             },
             Expr::LogicalOr { left, right } => self.eval_or(left, right),
             Expr::LogicalAnd { left, right } => self.eval_and(left, right),
+            Expr::Call { callee, paren, args } => self.eval_call(callee, paren, args),
         }
     }
 
@@ -156,6 +155,25 @@ impl TreeWalk {
         } else {
             return Ok(self.eval_expr(right)?);
         }
+    }
+
+    fn eval_call(&mut self, callee: &Expr, paren: &Token, args: &[Expr]) -> Result<Value> {
+        let callee = match self.eval_expr(callee)? {
+            Value::Function(callable) => callable,
+            _ => return Err(RuntimeError::NotValidCallable { token: paren.clone() }),
+        };
+        if args.len() != callee.arity() {
+            return Err(RuntimeError::InvalidArgumentCount { 
+                token: paren.clone(),
+                expected: callee.arity(),
+                actual: args.len(), 
+            });
+        }
+
+        let args = args.iter()
+            .map(|arg| self.eval_expr(arg))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(callee.call(args)?)
     }
     
     fn eval_binary(&mut self, left: &Expr, operator: &Token, right: &Expr) -> Result<Value> {

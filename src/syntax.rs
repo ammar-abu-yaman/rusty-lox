@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::token::Token;
+use crate::{function::CallableVariant, token::Token};
 
 pub type BoxedExpr = Box<Expr>;
 pub type BoxedStatement = Box<Statement>;
@@ -82,12 +82,18 @@ pub enum Expr {
         left: BoxedExpr,
         right: BoxedExpr,
     },
+    Call {
+        callee: BoxedExpr,
+        paren: Token,
+        args: Vec<Expr>,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum Value {
     Number(f64),
     String(String),
+    Function(CallableVariant),
     Bool(bool),
     Nil,
 }
@@ -99,6 +105,7 @@ impl Display for Value {
             Value::String(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Nil => write!(f, "nil"),
+            Value::Function(callable) => write!(f, "{callable}"),
         }
     }
 }
@@ -147,6 +154,14 @@ impl Expr {
             right: BoxedExpr::new(right), 
         }
     }
+
+    pub fn call(callee: Expr, paren: Token, args: Vec<Expr>) -> Self {
+        Self::Call {
+            callee: BoxedExpr::new(callee),
+            paren,
+            args,
+        }
+    }
 }
 
 impl Display for Expr {
@@ -171,7 +186,18 @@ impl Display for Expr {
             Expr::Literal(Value::Number(n)) => write!(f, "{n:?}"),
             Expr::Variable(Token { lexeme, .. }) => write!(f, "{lexeme}"),
             Expr::LogicalOr { left, right } => write!(f, "(or {left} {right})"),
+            Expr::Literal(value) => write!(f, "{value}"),
             Expr::LogicalAnd { left, right } => write!(f, "(and {left} {right})"),
+            Expr::Call { callee, args, ..  } => {
+                write!(f, "(call {callee} ")?;
+                if !args.is_empty() {
+                    write!(f, "{}", args[0])?;
+                    for arg in args.iter().skip(1) {
+                        write!(f, ", {arg}")?;
+                    }
+                }
+                write!(f, ")")
+            }
         }
     }
 }
