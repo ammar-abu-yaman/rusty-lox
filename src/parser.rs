@@ -81,7 +81,7 @@ impl RecursiveDecendantParser {
     fn declaration(&mut self) -> Result<Statement, ParseError> {
         use TokenType::*;
         match self.peek().token_type {
-            Var => Ok(self.decl_statement()?),
+            Var => Ok(Statement::Decl(self.decl_statement()?)),
             _ => Ok(self.statement()?),
         }
     }
@@ -93,11 +93,12 @@ impl RecursiveDecendantParser {
             LeftBrace => Ok(Statement::Block(self.block_statement()?)),
             If => Ok(Statement::If(self.if_statement()?)),
             While => Ok(Statement::While(self.while_statement()?)),
+            For => Ok(self.desugar_for_statement()?),
             _ => Ok(Statement::Expression(self.expression_statement()?)),
         }
     }
 
-    fn decl_statement(&mut self) -> Result<Statement, ParseError> {
+    fn decl_statement(&mut self) -> Result<DeclarationStatement, ParseError> {
         self.consume(TokenType::Var, "Expect 'var' before variable name.")?;
         let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
         let initializer = match self.peek().token_type {
@@ -108,7 +109,7 @@ impl RecursiveDecendantParser {
             _ => None,
         };
         self.consume(TokenType::SemiColon, "Expect ';' after variable declaration.")?;
-        Ok(Statement::Decl(DeclarationStatement { name, initializer }))
+        Ok(DeclarationStatement { name, initializer })
     }
 
     fn block_statement(&mut self) -> Result<BlockStatement, ParseError> {
@@ -150,6 +151,48 @@ impl RecursiveDecendantParser {
         self.consume(TokenType::RightParen, "Expect ')' after condition.")?;
         let body = BoxedStatement::new(self.statement()?);
         Ok(WhileStatement { condition, body })
+    }
+    
+    fn desugar_for_statement(&mut self) -> Result<Statement, ParseError> {
+        self.consume(TokenType::For, "Expect 'for' before body.")?;
+        self.consume(TokenType::LeftParen, "Expect '(' after 'for'.")?;
+        
+        let initializer = match self.peek().token_type {
+            TokenType::SemiColon => {
+                self.advance();
+                None
+            },
+            TokenType::Var => Some(Statement::Decl(self.decl_statement()?)),
+            _ => Some(Statement::Expression(self.expression_statement()?)),
+        };
+        let condition = match self.peek().token_type {
+            TokenType::SemiColon => None,
+            _ => Some(self.expression()?),
+        };
+        self.consume(TokenType::SemiColon, "Expect ';' after loop condition.")?;
+        let increment = match self.peek().token_type {
+            TokenType::RightParen => None,
+            _ => Some(self.expression()?),
+        };
+        self.consume(TokenType::RightParen, "Expect ')' after for clauses.")?;
+
+        let body = self.statement()?;
+        let body = match increment {
+            Some(expr) => Statement::Block(BlockStatement { statements: vec![
+                body,
+                Statement::Expression(ExpressionStatement { expr }),
+            ] }),
+            None => body,
+        };
+        let body = match condition {
+            Some(expr) => Statement::While(WhileStatement { condition: expr, body: BoxedStatement::new(body) }),
+            None => Statement::While(WhileStatement { condition: Expr::Literal(Value::Bool(true)), body: BoxedStatement::new(body) }),
+        };
+        let body = match initializer {
+            Some(statement) => Statement::Block(BlockStatement { statements: vec![statement, body] }),
+            None => body,
+        };
+        Ok(body)
     }
 
     fn print_statement(&mut self) -> Result<PrintStatement, ParseError> {
@@ -313,7 +356,7 @@ impl RecursiveDecendantParser {
                 ..
             } => Ok(Expr::Variable(token.clone())),
             token => {
-                log::error_token(&token, "Expected expression.");
+                log::error_token(&token, "Expect expression.");
                 Err(ParseError::ExpressionError)
             }
         }
@@ -347,14 +390,14 @@ impl RecursiveDecendantParser {
 
     fn synchronize(&mut self) {
         use TokenType::*;
-        let token = self.advance();
+        let mut token = self.advance();
         while token.token_type != Eof {
             if token.token_type == SemiColon {
                 return;
             }
             match self.peek().token_type {
                 Class | Fun | Var | For | If | While | Print | Return => return,
-                _ => {}
+                _ => { token = self.advance(); },
             }
         } 
     }
