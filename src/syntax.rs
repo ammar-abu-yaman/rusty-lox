@@ -14,6 +14,7 @@ pub enum Statement {
     Block(BlockStatement),
     If(IfStatemnet),
     While(WhileStatement),
+    Return(ReturnStatement),
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +48,12 @@ pub struct IfStatemnet {
     pub condition: Expr,
     pub if_branch: BoxedStatement,
     pub else_branch: Option<BoxedStatement>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReturnStatement {
+    pub return_token: Token,
+    pub value: Option<Expr>,
 }
 
 

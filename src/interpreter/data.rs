@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::token::Token;
+use crate::{syntax::Value, token::Token};
 
 pub type Result<T> = anyhow::Result<T, RuntimeError>;
 
@@ -14,4 +14,6 @@ pub enum RuntimeError {
     NotValidCallable { token: Token },
     #[error("Expected {expected} arguments but got {actual}.\n[line {}]", token.pos.line)]
     InvalidArgumentCount { token: Token, expected: usize, actual: usize },
+    #[error("")]
+    Return(Option<Value>),
 }

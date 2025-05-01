@@ -1,7 +1,7 @@
 use super::{data::{Result, RuntimeError}, env::{BoxedEnvironment, Environment}, Evaluator, Interpreter};
 
 use crate::{
-    function::{Callable, CallableVariant, Function, NativeFunction}, syntax::{BlockStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Token, TokenType}
+    function::{Callable, CallableVariant, Function, NativeFunction}, syntax::{BlockStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Token, TokenType}
 };
 
 pub struct TreeWalk {
@@ -57,6 +57,7 @@ impl TreeWalk {
             Statement::If(if_statement) => self.eval_if_stmt(if_statement),
             Statement::While(while_statement) => self.eval_while_stmt(while_statement),
             Statement::FunDecl(func_decl) => self.eval_fun_decl(func_decl),
+            Statement::Return(return_statement) => self.eval_return_stmt(return_statement),
         }
     }
 
@@ -85,6 +86,14 @@ impl TreeWalk {
         let value = self.eval_expr(&stmt.expr)?;
         println!("{}", value);
         Ok(())
+    }
+
+    fn eval_return_stmt(&mut self, stmt: &ReturnStatement) -> Result<()> {
+        let value = match &stmt.value {
+            Some(value) => self.eval_expr(value)?,
+            None => Value::Nil,
+        };
+        Err(RuntimeError::Return(Some(value)))
     }
 
     fn eval_block_stmt(&mut self, stmt: &BlockStatement, env: BoxedEnvironment) -> Result<()> {

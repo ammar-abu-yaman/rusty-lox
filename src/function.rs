@@ -72,8 +72,11 @@ impl Callable for Function {
         for param in &self.params {
             environment.borrow_mut().define(param.lexeme.clone(), args.next().unwrap());
         }
-        interpreter.interpret_block(&BlockStatement{ statements: self.body.clone() } , environment)?;
-        Ok(Value::Nil)
+        match interpreter.interpret_block(&BlockStatement{ statements: self.body.clone() } , environment) {
+            Ok(_) => Ok(Value::Nil),
+            Err(RuntimeError::Return(value)) => Ok(value.unwrap_or(Value::Nil)),
+            Err(e) => Err(e),
+        }
     }
 
     fn arity(&self) -> usize {

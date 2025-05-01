@@ -2,10 +2,10 @@ use anyhow::Result;
 use thiserror::Error;
 
 use crate::{
-    function::FunctionType, log, scanner::Scanner, syntax::{BlockStatement, BoxedStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Literal, Token, TokenType}
+    function::FunctionType, log, scanner::Scanner, syntax::{BlockStatement, BoxedStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Literal, Token, TokenType}
 };
 
-pub trait LoxParser {
+pub trait Parser {
     fn parse(&mut self, scanner: &mut Scanner) -> Option<Vec<Statement>>;
     fn parse_expr(&mut self, scanner: &mut Scanner) -> Option<Expr>;
 }
@@ -40,7 +40,7 @@ impl Default for RecursiveDecendantParser {
     }
 }
 
-impl LoxParser for RecursiveDecendantParser {
+impl Parser for RecursiveDecendantParser {
     fn parse(&mut self, scanner: &mut Scanner) -> Option<Vec<Statement>> {
         self.tokens = scanner.scan_all();
         let statements = self.program();
@@ -136,6 +136,7 @@ impl RecursiveDecendantParser {
             If => Ok(Statement::If(self.if_statement()?)),
             While => Ok(Statement::While(self.while_statement()?)),
             For => Ok(self.desugar_for_statement()?),
+            Return => Ok(Statement::Return(self.return_statement()?)),
             _ => Ok(Statement::Expr(self.expression_statement()?)),
         }
     }
@@ -182,6 +183,16 @@ impl RecursiveDecendantParser {
         self.consume(TokenType::RightParen, "Expect ')' after condition.")?;
         let body = BoxedStatement::new(self.statement()?);
         Ok(WhileStatement { condition, body })
+    }
+
+    fn return_statement(&mut self) -> Result<ReturnStatement, ParseError> {
+        let return_token = self.advance();
+        let value = match self.peek().token_type {
+            TokenType::SemiColon => None,
+            _ => Some(self.expression()?),
+        };
+        self.consume(TokenType::SemiColon, "Expect ';' after return value.")?;
+        Ok(ReturnStatement { return_token, value })
     }
     
     fn desugar_for_statement(&mut self) -> Result<Statement, ParseError> {

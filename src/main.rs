@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::process::exit;
 
 use interpreter::{Evaluator, Interpreter};
-use parser::{LoxParser, RecursiveDecendantParser};
+use parser::{Parser, RecursiveDecendantParser};
 use scanner::Scanner;
 use token::TokenType;
 
