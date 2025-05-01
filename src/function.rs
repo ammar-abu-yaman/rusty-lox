@@ -1,28 +1,43 @@
 use std::{fmt::Display, time::SystemTime};
 
-use crate::{interpreter::RuntimeError, syntax::Value};
+use crate::{interpreter::{Environment, Interpreter, RuntimeError}, syntax::{BlockStatement, Statement, Value}, token::Token};
+
+pub enum FunctionType {
+    Function,
+}
+
+impl Display for FunctionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FunctionType::Function => write!(f, "function"),
+        }
+    }
+}
 
 pub trait Callable {
-    fn call(&self, arguments: Vec<Value>) -> anyhow::Result<Value, RuntimeError>;
+    fn call(&self, interpreter: &mut impl Interpreter, arguments: Vec<Value>) -> anyhow::Result<Value, RuntimeError>;
     fn arity(&self) -> usize;
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum CallableVariant {
     Native(NativeFunction),
+    Defined(Function),
 }
 
 
 impl Callable for CallableVariant {
-    fn call(&self, args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
+    fn call(&self, interpreter: &mut impl Interpreter, args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
         match self {
-            CallableVariant::Native(native) => native.call(args),
+            CallableVariant::Native(native) => native.call(interpreter, args),
+            CallableVariant::Defined(function) => function.call(interpreter, args),
         }
     }
 
     fn arity(&self) -> usize {
         match self {
             CallableVariant::Native(native) => native.arity(),
+            CallableVariant::Defined(function) => function.arity(),
         }
     }
 }
@@ -31,11 +46,59 @@ impl Display for CallableVariant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CallableVariant::Native(native) => write!(f, "{native}"),
+            CallableVariant::Defined(function) => write!(f, "{function}"),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+
+#[derive(Debug, Clone)]
+pub struct Function {
+    pub name: Token,
+    pub params: Vec<Token>,
+    pub body: Vec<Statement>,
+}
+
+impl Function {
+    pub fn new(name: Token, params: Vec<Token>, body: Vec<Statement>) -> Self {
+        Self { name, params, body }
+    }
+}
+
+impl Callable for Function {
+    fn call(&self, interpreter: &mut impl Interpreter, args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
+        let environment = Environment::boxed_with_enclosing(interpreter.environment());
+        let mut args = args.into_iter();
+        for param in &self.params {
+            environment.borrow_mut().define(param.lexeme.clone(), args.next().unwrap());
+        }
+        interpreter.interpret_block(&BlockStatement{ statements: self.body.clone() } , environment)?;
+        Ok(Value::Nil)
+    }
+
+    fn arity(&self) -> usize {
+        self.params.len()
+    }
+}
+
+impl PartialEq for Function {
+    fn eq(&self, other: &Self) -> bool {
+        self.name.lexeme == other.name.lexeme
+    }
+}
+impl PartialOrd for Function {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.name.lexeme.cmp(&other.name.lexeme))
+    }
+}
+
+impl Display for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<fn {}>", self.name.lexeme)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct NativeFunction {
     pub name: &'static str,
     pub arity: usize,
@@ -48,16 +111,23 @@ impl NativeFunction {
     }
 
     pub fn clock() -> Self {
-        Self {
-            name: "clock",
-            arity: 0,
-            native: clock,
-        }
+        return Self::new("clock", 0, clock);
+    }
+}
+
+impl PartialEq for NativeFunction {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+impl PartialOrd for NativeFunction {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.name.cmp(other.name))
     }
 }
 
 impl Callable for NativeFunction {
-    fn call(&self, args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
+    fn call(&self, _interpreter: &mut impl Interpreter, args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
         (self.native)(args)
     }
 

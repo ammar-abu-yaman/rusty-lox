@@ -101,18 +101,18 @@ fn run(filename: &str) -> Result<(), io::Error> {
     let mut scanner = Scanner::try_from(file)?;
     let mut parser = RecursiveDecendantParser::new();
 
-    let ast = parser.parse(&mut scanner);
-    if scanner.has_error() || ast.is_none() {
+    let statements = parser.parse(&mut scanner);
+    if scanner.has_error() || statements.is_none() {
         exit(65);
     }
 
     let mut interpreter = interpreter::TreeWalk::new();
 
-    match interpreter.interpret(ast.unwrap()) {
-        Ok(_) => Ok(()),
-        Err(e) => {
+    for stmt in statements.unwrap() {
+        if let Err(e) = interpreter.interpret(&stmt) {
             log::error_runtime(&e);
             exit(70);
         }
     }
+    Ok(())
 }

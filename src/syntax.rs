@@ -5,58 +5,63 @@ use crate::{function::CallableVariant, token::Token};
 pub type BoxedExpr = Box<Expr>;
 pub type BoxedStatement = Box<Statement>;
 
-pub struct Ast {
-    pub statements: Vec<Statement>,
-}
-
-impl Ast {
-    pub fn new(statements: Vec<Statement>) -> Self {
-        Self { statements }
-    }
-}
-
+#[derive(Debug, Clone)]
 pub enum Statement {
-    Decl(DeclarationStatement),
+    FunDecl(FunctionDecl),
+    VarDecl(VariableDecl),
     Print(PrintStatement),
-    Expression(ExpressionStatement),
+    Expr(ExpressionStatement),
     Block(BlockStatement),
     If(IfStatemnet),
     While(WhileStatement),
 }
 
-#[derive(Debug)]
-pub struct DeclarationStatement {
+#[derive(Debug, Clone)]
+pub struct FunctionDecl {
+    pub name: Token,
+    pub params: Vec<Token>,
+    pub body: Vec<Statement>,
+}
+
+#[derive(Debug, Clone)]
+pub struct VariableDecl {
     pub name: Token,
     pub initializer: Option<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PrintStatement {
     pub print_token: Token,
     pub expr: Expr,
 }
 
+
+#[derive(Debug, Clone)]
 pub struct BlockStatement {
     pub statements: Vec<Statement>,
 }
 
+
+#[derive(Debug, Clone)]
 pub struct IfStatemnet {
     pub condition: Expr,
     pub if_branch: BoxedStatement,
     pub else_branch: Option<BoxedStatement>,
 }
 
+
+#[derive(Debug, Clone)]
 pub struct WhileStatement {
     pub condition: Expr,
     pub body: BoxedStatement,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ExpressionStatement {
     pub expr: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Asign {
         name: Token,

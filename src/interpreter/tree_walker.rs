@@ -1,7 +1,7 @@
 use super::{data::{Result, RuntimeError}, env::{BoxedEnvironment, Environment}, Evaluator, Interpreter};
 
 use crate::{
-    function::{Callable, CallableVariant, NativeFunction}, syntax::{Ast, BlockStatement, DeclarationStatement, Expr, ExpressionStatement, IfStatemnet, PrintStatement, Statement, Value, WhileStatement}, token::{Token, TokenType}
+    function::{Callable, CallableVariant, Function, NativeFunction}, syntax::{BlockStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Token, TokenType}
 };
 
 pub struct TreeWalk {
@@ -33,27 +33,34 @@ impl Evaluator for TreeWalk {
 }
 
 impl Interpreter for TreeWalk {
-    fn interpret(&mut self, ast: Ast) -> Result<()> {
-        for statement in &ast.statements {
-            self.eval_stmt(&statement)?;
-        }
+    fn interpret(&mut self, stmt: &Statement) -> Result<()> {
+        self.eval_stmt(stmt)?;
         Ok(())
+    }
+
+    fn environment(&self) -> &BoxedEnvironment {
+        &self.environment
+    }
+    
+    fn interpret_block(&mut self, block: &BlockStatement, env: BoxedEnvironment) -> Result<()> {
+        self.eval_block_stmt(block, env)
     }
 }
 
 impl TreeWalk {
     fn eval_stmt(&mut self, statement: &Statement) -> Result<()> {
         match statement {
-            Statement::Decl(declaration_statement) => self.eval_decl_stmt(declaration_statement),
+            Statement::VarDecl(var_decl) => self.eval_var_decl(var_decl),
             Statement::Print(print_statement) => self.eval_print_stmt(print_statement),
             Statement::Block(block_statement) => self.eval_block_stmt(block_statement, Environment::boxed_with_enclosing(&self.environment)),
-            Statement::Expression(expression_statement) => self.eval_expr_stmt(expression_statement),
+            Statement::Expr(expression_statement) => self.eval_expr_stmt(expression_statement),
             Statement::If(if_statement) => self.eval_if_stmt(if_statement),
             Statement::While(while_statement) => self.eval_while_stmt(while_statement),
+            Statement::FunDecl(func_decl) => self.eval_fun_decl(func_decl),
         }
     }
 
-    fn eval_decl_stmt(&mut self, stmt: &DeclarationStatement) -> Result<()> {
+    fn eval_var_decl(&mut self, stmt: &VariableDecl) -> Result<()> {
         let name = stmt.name.lexeme.clone();
         let value = match &stmt.initializer {
             Some(initializer) => self.eval_expr(initializer)?,
@@ -61,6 +68,16 @@ impl TreeWalk {
             
         };
         self.environment.borrow_mut().define(name, value);
+        Ok(())
+    }
+
+    fn eval_fun_decl(&mut self, stmt: &FunctionDecl) -> Result<()> {
+        let function = CallableVariant::Defined(Function::new(
+            stmt.name.clone(),
+            stmt.params.clone(),
+            stmt.body.clone(),
+        ));
+        self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Function(function));
         Ok(())
     }
 
@@ -173,7 +190,7 @@ impl TreeWalk {
         let args = args.iter()
             .map(|arg| self.eval_expr(arg))
             .collect::<Result<Vec<_>>>()?;
-        Ok(callee.call(args)?)
+        Ok(callee.call(self, args)?)
     }
     
     fn eval_binary(&mut self, left: &Expr, operator: &Token, right: &Expr) -> Result<Value> {

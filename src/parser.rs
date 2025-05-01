@@ -2,14 +2,11 @@ use anyhow::Result;
 use thiserror::Error;
 
 use crate::{
-    log,
-    scanner::Scanner,
-    syntax::{Ast, BlockStatement, BoxedStatement, DeclarationStatement, Expr, ExpressionStatement, IfStatemnet, PrintStatement, Statement, Value, WhileStatement},
-    token::{Literal, Token, TokenType},
+    function::FunctionType, log, scanner::Scanner, syntax::{BlockStatement, BoxedStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Literal, Token, TokenType}
 };
 
 pub trait LoxParser {
-    fn parse(&mut self, scanner: &mut Scanner) -> Option<Ast>;
+    fn parse(&mut self, scanner: &mut Scanner) -> Option<Vec<Statement>>;
     fn parse_expr(&mut self, scanner: &mut Scanner) -> Option<Expr>;
 }
 
@@ -44,13 +41,13 @@ impl Default for RecursiveDecendantParser {
 }
 
 impl LoxParser for RecursiveDecendantParser {
-    fn parse(&mut self, scanner: &mut Scanner) -> Option<Ast> {
+    fn parse(&mut self, scanner: &mut Scanner) -> Option<Vec<Statement>> {
         self.tokens = scanner.scan_all();
         let statements = self.program();
         if self.has_error {
             return None;
         }
-        Some(Ast::new(statements))
+        Some(statements)
     }
 
     fn parse_expr(&mut self, scanner: &mut Scanner) -> Option<Expr> {
@@ -81,24 +78,13 @@ impl RecursiveDecendantParser {
     fn declaration(&mut self) -> Result<Statement, ParseError> {
         use TokenType::*;
         match self.peek().token_type {
-            Var => Ok(Statement::Decl(self.decl_statement()?)),
+            Var => Ok(Statement::VarDecl(self.decl_statement()?)),
+            Fun => Ok(Statement::FunDecl(self.function_declaration(FunctionType::Function)?)),
             _ => Ok(self.statement()?),
         }
     }
 
-    fn statement(&mut self) -> Result<Statement, ParseError> {
-        use TokenType::*;
-        match self.peek().token_type {
-            Print => Ok(Statement::Print(self.print_statement()?)),
-            LeftBrace => Ok(Statement::Block(self.block_statement()?)),
-            If => Ok(Statement::If(self.if_statement()?)),
-            While => Ok(Statement::While(self.while_statement()?)),
-            For => Ok(self.desugar_for_statement()?),
-            _ => Ok(Statement::Expression(self.expression_statement()?)),
-        }
-    }
-
-    fn decl_statement(&mut self) -> Result<DeclarationStatement, ParseError> {
+    fn decl_statement(&mut self) -> Result<VariableDecl, ParseError> {
         self.consume(TokenType::Var, "Expect 'var' before variable name.")?;
         let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
         let initializer = match self.peek().token_type {
@@ -109,12 +95,57 @@ impl RecursiveDecendantParser {
             _ => None,
         };
         self.consume(TokenType::SemiColon, "Expect ';' after variable declaration.")?;
-        Ok(DeclarationStatement { name, initializer })
+        Ok(VariableDecl { name, initializer })
     }
 
-    fn block_statement(&mut self) -> Result<BlockStatement, ParseError> {
+    fn function_declaration(&mut self, kind: FunctionType) -> Result<FunctionDecl, ParseError> {
+        self.consume(TokenType::Fun, format!("Expect 'fun' before function name."))?;
+        let name = self.consume(TokenType::Identifier, format!("Expect '{kind}' name."))?;
+        self.consume(TokenType::LeftParen, format!("Expect '(' after {kind} name."))?;
+        let params = self.parameters()?;
+        self.consume(TokenType::RightParen, "message: Expect ')' after parameters.")?;
+        let body = self.block_statement(Some(kind))?.statements;
+        return Ok(FunctionDecl {
+            name,
+            params,
+            body,
+        });
+    }
+
+    fn parameters(&mut self) -> Result<Vec<Token>, ParseError> {
+        let mut params = vec![];
+        while self.peek().token_type != TokenType::RightParen {
+            if params.len() >= 255 {
+                self.has_error = true;
+                log::error_token(self.peek(), "Can't have more than 255 parameters.");
+            }
+            params.push(self.consume(TokenType::Identifier, "Expect parameter name.")?);
+            if self.peek().token_type != TokenType::Comma {
+                break;
+            }
+            self.advance();
+        }
+        Ok(params)
+    }
+
+    fn statement(&mut self) -> Result<Statement, ParseError> {
+        use TokenType::*;
+        match self.peek().token_type {
+            Print => Ok(Statement::Print(self.print_statement()?)),
+            LeftBrace => Ok(Statement::Block(self.block_statement(None)?)),
+            If => Ok(Statement::If(self.if_statement()?)),
+            While => Ok(Statement::While(self.while_statement()?)),
+            For => Ok(self.desugar_for_statement()?),
+            _ => Ok(Statement::Expr(self.expression_statement()?)),
+        }
+    }
+
+    fn block_statement(&mut self, block_type: Option<FunctionType>) -> Result<BlockStatement, ParseError> {
         let mut statements = vec![];
-        self.consume(TokenType::LeftBrace, "Expect '{' before block.")?;
+        self.consume(TokenType::LeftBrace, match block_type {
+            Some(func_type) => format!("Expect '{{' before {func_type} body."),
+            None => "Expect '{{' before block.".to_string(),
+        })?;
         while !matches!(self.peek().token_type, TokenType::RightBrace | TokenType::Eof) {
             let statement = self.declaration()?;
             statements.push(statement);
@@ -162,8 +193,8 @@ impl RecursiveDecendantParser {
                 self.advance();
                 None
             },
-            TokenType::Var => Some(Statement::Decl(self.decl_statement()?)),
-            _ => Some(Statement::Expression(self.expression_statement()?)),
+            TokenType::Var => Some(Statement::VarDecl(self.decl_statement()?)),
+            _ => Some(Statement::Expr(self.expression_statement()?)),
         };
         let condition = match self.peek().token_type {
             TokenType::SemiColon => None,
@@ -180,7 +211,7 @@ impl RecursiveDecendantParser {
         let body = match increment {
             Some(expr) => Statement::Block(BlockStatement { statements: vec![
                 body,
-                Statement::Expression(ExpressionStatement { expr }),
+                Statement::Expr(ExpressionStatement { expr }),
             ] }),
             None => body,
         };
