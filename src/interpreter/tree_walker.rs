@@ -14,7 +14,7 @@ impl TreeWalk {
         let globals = Environment::boxed();
         globals.borrow_mut().define("clock", Value::Function(CallableVariant::Native(NativeFunction::clock())));
         Self {
-            environment: Environment::boxed_with_enclosing(&globals),
+            environment: BoxedEnvironment::clone(&globals),
             globals,
         }
     }
@@ -38,10 +38,6 @@ impl Interpreter for TreeWalk {
         Ok(())
     }
 
-    fn environment(&self) -> &BoxedEnvironment {
-        &self.environment
-    }
-    
     fn interpret_block(&mut self, block: &BlockStatement, env: BoxedEnvironment) -> Result<()> {
         self.eval_block_stmt(block, env)
     }
@@ -74,9 +70,8 @@ impl TreeWalk {
 
     fn eval_fun_decl(&mut self, stmt: &FunctionDecl) -> Result<()> {
         let function = CallableVariant::Defined(Function::new(
-            stmt.name.clone(),
-            stmt.params.clone(),
-            stmt.body.clone(),
+            stmt,
+            &self.environment,
         ));
         self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Function(function));
         Ok(())
@@ -97,21 +92,18 @@ impl TreeWalk {
     }
 
     fn eval_block_stmt(&mut self, stmt: &BlockStatement, env: BoxedEnvironment) -> Result<()> {
+        let old_env = BoxedEnvironment::clone(&self.environment);
         self.environment = env;
         for statement in &stmt.statements {
             match self.eval_stmt(statement) {
                 Ok(()) => continue,
                 err @ Err(_) => {
-                    self.environment = unsafe { 
-                        self.environment.try_borrow_unguarded().unwrap().enclosing.clone().unwrap()
-                    };
+                    self.environment = old_env;
                     return err
                 }, 
             }
         }
-        self.environment = unsafe { 
-            self.environment.try_borrow_unguarded().unwrap().enclosing.clone().unwrap()
-        };
+        self.environment = old_env;
         Ok(())
     }
     

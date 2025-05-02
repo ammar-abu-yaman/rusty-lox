@@ -15,5 +15,4 @@ pub trait Evaluator {
 pub trait Interpreter {
     fn interpret(&mut self, ast: &Statement) -> Result<()>;
     fn interpret_block(&mut self, block: &BlockStatement, env: BoxedEnvironment) -> Result<()>;
-    fn environment(&self) -> &BoxedEnvironment;
 }

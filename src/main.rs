@@ -105,7 +105,6 @@ fn run(filename: &str) -> Result<(), io::Error> {
     if scanner.has_error() || statements.is_none() {
         exit(65);
     }
-
     let mut interpreter = interpreter::TreeWalk::new();
 
     for stmt in statements.unwrap() {

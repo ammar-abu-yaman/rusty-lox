@@ -7,6 +7,7 @@ use super::RuntimeError;
 pub type BoxedEnvironment = Rc<RefCell<Environment>>;
 pub type ValueMap = HashMap<String, Value>;
 
+#[derive(Debug, Clone)]
 pub struct Environment {
     values: ValueMap,
     pub enclosing: Option<BoxedEnvironment>,
@@ -27,7 +28,7 @@ impl Environment {
     pub fn boxed_with_enclosing(enclosing: &BoxedEnvironment) -> BoxedEnvironment {
         BoxedEnvironment::new(RefCell::new(Self {
             values: ValueMap::new(),
-            enclosing: Some(Rc::clone(enclosing)),
+            enclosing: Some(BoxedEnvironment::clone(enclosing)),
         }))
     }
 }

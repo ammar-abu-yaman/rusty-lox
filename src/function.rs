@@ -1,6 +1,6 @@
-use std::{fmt::Display, time::SystemTime};
+use std::{env, fmt::{Debug, Display}, time::SystemTime};
 
-use crate::{interpreter::{Environment, Interpreter, RuntimeError}, syntax::{BlockStatement, Statement, Value}, token::Token};
+use crate::{interpreter::{BoxedEnvironment, Environment, Interpreter, RuntimeError}, syntax::{BlockStatement, FunctionDecl, Statement, Value}, token::Token};
 
 pub enum FunctionType {
     Function,
@@ -52,22 +52,34 @@ impl Display for CallableVariant {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Function {
-    pub name: Token,
-    pub params: Vec<Token>,
-    pub body: Vec<Statement>,
+    name: Token,
+    params: Vec<Token>,
+    body: Vec<Statement>,
+    closure: BoxedEnvironment,
 }
 
 impl Function {
-    pub fn new(name: Token, params: Vec<Token>, body: Vec<Statement>) -> Self {
-        Self { name, params, body }
+    pub fn new(decl: &FunctionDecl, env: &BoxedEnvironment) -> Self {
+        Self { 
+            name: decl.name.clone(),
+            params: decl.params.clone(),
+            body: decl.body.clone(),
+            closure: BoxedEnvironment::clone(&env),
+        }
+    }
+}
+
+impl Debug for Function {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<fn {}>", self.name.lexeme)
     }
 }
 
 impl Callable for Function {
     fn call(&self, interpreter: &mut impl Interpreter, args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
-        let environment = Environment::boxed_with_enclosing(interpreter.environment());
+        let environment = Environment::boxed_with_enclosing(&self.closure);
         let mut args = args.into_iter();
         for param in &self.params {
             environment.borrow_mut().define(param.lexeme.clone(), args.next().unwrap());
