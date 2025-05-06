@@ -112,7 +112,7 @@ fn run(filename: &str) -> Result<(), io::Error> {
     let mut statements = statements.unwrap();
     statements.iter_mut().for_each(|stmt| resolver.resolve_stmt(stmt));
     if resolver.has_err() {
-        return Ok(());
+        exit(65);
     }
 
     for stmt in statements {
