@@ -72,6 +72,7 @@ pub struct ExpressionStatement {
 pub enum Expr {
     Asign {
         name: Token,
+        height: Option<usize>,
         value: BoxedExpr,
     },
     Binary {
@@ -85,7 +86,10 @@ pub enum Expr {
     },
     Grouping(BoxedExpr),
     Literal(Value),
-    Variable(Token),
+    Variable {
+        name: Token,
+        height: Option<usize>,
+    },
     LogicalOr{
         left: BoxedExpr,
         right: BoxedExpr,
@@ -142,14 +146,15 @@ impl Expr {
         }
     }
 
-    pub fn variable(identifier: Token) -> Self {
-        Self::Variable(identifier)
+    pub fn variable(name: Token, height: Option<usize>) -> Self {
+        Self::Variable { name, height }
     }
 
     pub fn assign(name: Token, value: Expr) -> Self {
         Self::Asign {
             name,
             value: BoxedExpr::new(value),
+            height: None,
         }
     }
 
@@ -179,9 +184,9 @@ impl Expr {
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Asign { name: Token { lexeme, .. }, value } => {
-                        write!(f, "(= {lexeme} {value})")
-                    }
+            Expr::Asign { name: Token { lexeme, .. }, value, .. } => {
+                write!(f, "(= {lexeme} {value})")
+            },
             Expr::Binary {
                         left,
                         operator: Token { lexeme, .. },
@@ -196,7 +201,7 @@ impl Display for Expr {
             Expr::Literal(Value::String(s)) => write!(f, "{s}"),
             Expr::Literal(Value::Nil) => write!(f, "nil"),
             Expr::Literal(Value::Number(n)) => write!(f, "{n:?}"),
-            Expr::Variable(Token { lexeme, .. }) => write!(f, "{lexeme}"),
+            Expr::Variable { name: Token { lexeme, .. }, .. } => write!(f, "{lexeme}"),
             Expr::LogicalOr { left, right } => write!(f, "(or {left} {right})"),
             Expr::Literal(value) => write!(f, "{value}"),
             Expr::LogicalAnd { left, right } => write!(f, "(and {left} {right})"),

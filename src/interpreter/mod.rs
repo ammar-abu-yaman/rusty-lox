@@ -1,11 +1,8 @@
-use crate::syntax::{BlockStatement, Expr, Statement, Value};
+use crate::{syntax::{BlockStatement, Expr, Statement, Value}, token::Token};
 
-mod data;
 mod tree_walker;
-mod env;
 
-pub use data::{Result, RuntimeError};
-pub use env::{BoxedEnvironment, Environment};
+pub use super::env::{BoxedEnvironment, Environment};
 pub use tree_walker::TreeWalk;
 
 pub trait Evaluator {
@@ -15,4 +12,22 @@ pub trait Evaluator {
 pub trait Interpreter {
     fn interpret(&mut self, ast: &Statement) -> Result<()>;
     fn interpret_block(&mut self, block: &BlockStatement, env: BoxedEnvironment) -> Result<()>;
+}
+
+use thiserror::Error;
+
+pub type Result<T> = anyhow::Result<T, RuntimeError>;
+
+#[derive(Error, Debug)]
+pub enum RuntimeError {
+    #[error("{message}\n[line {}]", operator.pos.line)]
+    IncompatibleOperandType { operator: Token, message: String },
+    #[error("Undefined variable '{}'.\n[line {}]", token.lexeme, token.pos.line)]
+    UndefinedVariable { token: Token },
+    #[error("Can only call functions and classes.\n[line {}]", token.pos.line)]
+    NotValidCallable { token: Token },
+    #[error("Expected {expected} arguments but got {actual}.\n[line {}]", token.pos.line)]
+    InvalidArgumentCount { token: Token, expected: usize, actual: usize },
+    #[error("")]
+    Return(Option<Value>),
 }

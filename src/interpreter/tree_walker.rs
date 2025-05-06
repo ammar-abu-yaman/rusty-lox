@@ -1,4 +1,5 @@
-use super::{data::{Result, RuntimeError}, env::{BoxedEnvironment, Environment}, Evaluator, Interpreter};
+use super::{Evaluator, Interpreter, Result, RuntimeError};
+use crate::env::{BoxedEnvironment, Environment};
 
 use crate::{
     function::{Callable, CallableVariant, Function, NativeFunction}, syntax::{BlockStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Token, TokenType}
@@ -132,9 +133,12 @@ impl TreeWalk {
     
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value> {
         match expr {
-            Expr::Asign { name, value } => {
+            Expr::Asign { name, value, height } => {
                 let value = self.eval_expr(value)?;
-                self.environment.borrow_mut().assign(name.clone(), value.clone())?;
+                match height {
+                    Some(h) => self.environment.borrow_mut().assign_at(name.clone(), value.clone(), *h),
+                    None => self.globals.borrow_mut().assign(name.clone(), value.clone())?,
+                }
                 Ok(value)
             },
             Expr::Binary {
@@ -145,10 +149,10 @@ impl TreeWalk {
             Expr::Unary { operator, expr } => self.eval_unary(operator, expr),
             Expr::Grouping(expr) => self.eval_expr(expr),
             Expr::Literal(value) => Ok(value.clone()),
-            Expr::Variable(token) => {
-                match self.environment.borrow_mut().get(&token.lexeme) {
+            Expr::Variable { name, height } => {
+                match self.lookup_var(name, *height) {
                     Some(value) => Ok(value.clone()),
-                    None => Err(RuntimeError::UndefinedVariable { token: token.clone() })
+                    None => Err(RuntimeError::UndefinedVariable { token: name.clone() })
                 }
             },
             Expr::LogicalOr { left, right } => self.eval_or(left, right),
@@ -244,6 +248,15 @@ impl TreeWalk {
             },
             TokenType::Not => Ok(Value::Bool(!is_true(&value))),
             _ => panic!("Invalid unary operator"),
+        }
+    }
+}
+
+impl TreeWalk {
+    fn lookup_var(&self, name: &Token, height: Option<usize>) -> Option<Value> {
+        match height {
+            Some(h) => self.environment.borrow().get_at(&name.lexeme, h),
+            None => self.globals.borrow().get(&name.lexeme),
         }
     }
 }

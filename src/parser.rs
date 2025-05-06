@@ -259,7 +259,7 @@ impl RecursiveDecendantParser {
         if self.peek().token_type == TokenType::Asign {
             let equals = self.advance();
             let value = self.assignment()?;
-            if let Expr::Variable(name) = &expr {
+            if let Expr::Variable { name, ..} = &expr {
                 return Ok(Expr::assign(name.clone(), value));
             }
             self.has_error = true;
@@ -425,7 +425,7 @@ impl RecursiveDecendantParser {
             token @ Token {
                 token_type: Identifier,
                 ..
-            } => Ok(Expr::Variable(token.clone())),
+            } => Ok(Expr::variable(token.clone(), None)),
             token => {
                 log::error_token(&token, "Expect expression.");
                 Err(ParseError::ExpressionError)

@@ -1,10 +1,10 @@
-use std::env;
 use std::fs::File;
 use std::io::{self, Write};
 use std::process::exit;
 
 use interpreter::{Evaluator, Interpreter};
 use parser::{Parser, RecursiveDecendantParser};
+use resolver::Resolver;
 use scanner::Scanner;
 use token::TokenType;
 
@@ -14,10 +14,12 @@ mod parser;
 mod scanner;
 mod syntax;
 mod token;
+mod env;
 mod function;
+mod resolver;
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
+    let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
         writeln!(io::stderr(), "Usage: {} tokenize <filename>", args[0]).unwrap();
         return Ok(());
@@ -100,14 +102,20 @@ fn run(filename: &str) -> Result<(), io::Error> {
     let file = File::open(filename)?;
     let mut scanner = Scanner::try_from(file)?;
     let mut parser = RecursiveDecendantParser::new();
+    let mut resolver = Resolver::new(); 
+    let mut interpreter = interpreter::TreeWalk::new();
 
     let statements = parser.parse(&mut scanner);
     if scanner.has_error() || statements.is_none() {
         exit(65);
     }
-    let mut interpreter = interpreter::TreeWalk::new();
+    let mut statements = statements.unwrap();
+    statements.iter_mut().for_each(|stmt| resolver.resolve_stmt(stmt));
+    if resolver.has_err() {
+        return Ok(());
+    }
 
-    for stmt in statements.unwrap() {
+    for stmt in statements {
         if let Err(e) = interpreter.interpret(&stmt) {
             log::error_runtime(&e);
             exit(70);
