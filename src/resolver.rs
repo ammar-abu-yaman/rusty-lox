@@ -4,8 +4,12 @@ use crate::log;
 use crate::syntax::{BlockStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, VariableDecl, WhileStatement};
 use crate::token::Token;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScopeType { Function, Normal }
+
 pub struct Resolver<'a> {
     scopes: Vec<HashMap<&'a str, bool>>,
+    current_scope: ScopeType,
     has_err: bool
 }
 
@@ -13,6 +17,7 @@ impl <'a> Resolver<'a> {
     pub fn new() -> Self {
         Self {
             scopes: vec![],
+            current_scope: ScopeType::Normal,
             has_err: false,
         }
     }
@@ -82,16 +87,27 @@ impl <'a> Resolver<'a> {
     fn resolve_fun_decl(&mut self, stmt: &'a mut FunctionDecl) {
         self.declare(&stmt.name);
         self.define(&stmt.name.lexeme);
+        self.resolve_function(&mut stmt.params, &mut stmt.body, ScopeType::Function);
+    }   
+
+    fn resolve_function(&mut self, params: &'a Vec<Token>, stmts: &'a mut Vec<Statement>, scope_type: ScopeType) {
+        let old_scope = self.current_scope;
+        self.current_scope = scope_type;
         self.begin_scope();
-        for param in &stmt.params {
+        for param in params {
             self.declare(&param);
             self.define(&param.lexeme);
         }
-        stmt.body.iter_mut().for_each(|stmt| self.resolve_stmt(stmt));
+        stmts.iter_mut().for_each(|stmt| self.resolve_stmt(stmt));
         self.end_scope();
-    }   
+        self.current_scope = old_scope;        
+    }
 
     fn resolve_return_stmt(&mut self, stmt: &'a mut ReturnStatement) {
+        if self.current_scope == ScopeType::Normal {
+            self.has_err = true;
+            log::error_token(&stmt.return_token, "Can't return from top-level code.");
+        }
         if let Some(value) = &mut stmt.value {
             self.resolve_expr(value);
         }
