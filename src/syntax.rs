@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{function::CallableVariant, token::Token};
+use crate::{class::Class, function::CallableVariant, token::Token};
 
 pub type BoxedExpr = Box<Expr>;
 pub type BoxedStatement = Box<Statement>;
@@ -9,12 +9,19 @@ pub type BoxedStatement = Box<Statement>;
 pub enum Statement {
     FunDecl(FunctionDecl),
     VarDecl(VariableDecl),
+    ClassDecl(ClassDecl),
     Print(PrintStatement),
     Expr(ExpressionStatement),
     Block(BlockStatement),
     If(IfStatemnet),
     While(WhileStatement),
     Return(ReturnStatement),
+}
+
+#[derive(Debug, Clone)]
+pub struct ClassDecl {
+    pub name: Token,
+    pub methods: Vec<FunctionDecl>, 
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +117,7 @@ pub enum Value {
     Number(f64),
     String(String),
     Function(CallableVariant),
+    Class(Class),
     Bool(bool),
     Nil,
 }
@@ -122,6 +130,7 @@ impl Display for Value {
             Value::Bool(b) => write!(f, "{b}"),
             Value::Nil => write!(f, "nil"),
             Value::Function(callable) => write!(f, "{callable}"),
+            Value::Class(class) => write!(f, "{class}"),
         }
     }
 }

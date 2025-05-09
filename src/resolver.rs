@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::log;
-use crate::syntax::{BlockStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, VariableDecl, WhileStatement};
+use crate::syntax::{BlockStatement, ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, VariableDecl, WhileStatement};
 use crate::token::Token;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -44,7 +44,13 @@ impl <'a> Resolver<'a> {
             Statement::While(while_statement) => self.resolve_while_stmt(while_statement),
             Statement::FunDecl(func_decl) => self.resolve_fun_decl(func_decl),
             Statement::Return(return_statement) => self.resolve_return_stmt(return_statement),
+            Statement::ClassDecl(class_decl) => self.resolve_class_decl(class_decl)
         }
+    }
+
+    fn resolve_class_decl(&mut self, stmt: &'a mut ClassDecl) {
+        self.declare(&stmt.name);
+        self.define(&stmt.name.lexeme);
     }
 
     fn resolve_var_decl(&mut self, stmt: &'a mut VariableDecl) {

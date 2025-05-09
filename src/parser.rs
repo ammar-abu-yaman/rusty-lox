@@ -2,7 +2,7 @@ use anyhow::Result;
 use thiserror::Error;
 
 use crate::{
-    function::FunctionType, log, scanner::Scanner, syntax::{BlockStatement, BoxedStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Literal, Token, TokenType}
+    function::FunctionType, log, scanner::Scanner, syntax::{BlockStatement, BoxedStatement, ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Literal, Token, TokenType}
 };
 
 pub trait Parser {
@@ -78,13 +78,30 @@ impl RecursiveDecendantParser {
     fn declaration(&mut self) -> Result<Statement, ParseError> {
         use TokenType::*;
         match self.peek().token_type {
-            Var => Ok(Statement::VarDecl(self.decl_statement()?)),
+            Var => Ok(Statement::VarDecl(self.variable_declaration()?)),
             Fun => Ok(Statement::FunDecl(self.function_declaration(FunctionType::Function)?)),
+            Class => Ok(Statement::ClassDecl(self.class_declaration()?)),
             _ => Ok(self.statement()?),
         }
     }
 
-    fn decl_statement(&mut self) -> Result<VariableDecl, ParseError> {
+    fn class_declaration(&mut self) -> Result<ClassDecl, ParseError> {
+        self.consume(TokenType::Class, "Expect 'class' before class name.")?;
+        let name = self.consume(TokenType::Identifier, "Expect class name.")?;
+        self.consume(TokenType::LeftBrace, "Expect '{' before class body.")?;
+        let mut methods = vec![];
+        while !matches!(self.peek().token_type, TokenType::Eof | TokenType::RightBrace) {
+            match self.peek().token_type {
+                TokenType::Fun => methods.push(self.function_declaration(FunctionType::Method)?),
+                _ => {},
+            }
+        }
+        self.consume(TokenType::RightBrace, "Expect '}' after class body.")?;
+
+        Ok(ClassDecl { name, methods })
+    }
+
+    fn variable_declaration(&mut self) -> Result<VariableDecl, ParseError> {
         self.consume(TokenType::Var, "Expect 'var' before variable name.")?;
         let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
         let initializer = match self.peek().token_type {
@@ -204,7 +221,7 @@ impl RecursiveDecendantParser {
                 self.advance();
                 None
             },
-            TokenType::Var => Some(Statement::VarDecl(self.decl_statement()?)),
+            TokenType::Var => Some(Statement::VarDecl(self.variable_declaration()?)),
             _ => Some(Statement::Expr(self.expression_statement()?)),
         };
         let condition = match self.peek().token_type {

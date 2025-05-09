@@ -1,6 +1,8 @@
 use super::{Evaluator, Interpreter, Result, RuntimeError};
+use crate::class::Class;
 use crate::env::{BoxedEnvironment, Environment};
 
+use crate::syntax::ClassDecl;
 use crate::{
     function::{Callable, CallableVariant, Function, NativeFunction}, syntax::{BlockStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Token, TokenType}
 };
@@ -55,7 +57,14 @@ impl TreeWalk {
             Statement::While(while_statement) => self.eval_while_stmt(while_statement),
             Statement::FunDecl(func_decl) => self.eval_fun_decl(func_decl),
             Statement::Return(return_statement) => self.eval_return_stmt(return_statement),
+            Statement::ClassDecl(class_decl) => self.eval_class_decl(class_decl),
         }
+    }
+
+    fn eval_class_decl(&mut self, stmt: &ClassDecl) -> Result<()> {
+        let class = Class::new(stmt.name.lexeme.clone());
+        self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Class(class));
+        Ok(())
     }
 
     fn eval_var_decl(&mut self, stmt: &VariableDecl) -> Result<()> {

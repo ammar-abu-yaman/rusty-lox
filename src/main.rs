@@ -16,6 +16,7 @@ mod syntax;
 mod token;
 mod env;
 mod function;
+mod class;
 mod resolver;
 
 fn main() -> io::Result<()> {

@@ -1,15 +1,17 @@
-use std::{env, fmt::{Debug, Display}, time::SystemTime};
+use std::{fmt::{Debug, Display}, time::SystemTime};
 
 use crate::{interpreter::{BoxedEnvironment, Environment, Interpreter, RuntimeError}, syntax::{BlockStatement, FunctionDecl, Statement, Value}, token::Token};
 
 pub enum FunctionType {
     Function,
+    Method,
 }
 
 impl Display for FunctionType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FunctionType::Function => write!(f, "function"),
+            FunctionType::Method => write!(f, "method"),
         }
     }
 }
