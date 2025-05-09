@@ -15,7 +15,7 @@ pub struct TreeWalk {
 impl TreeWalk {
     pub fn new() -> Self {
         let globals = Environment::boxed();
-        globals.borrow_mut().define("clock", Value::Function(CallableVariant::Native(NativeFunction::clock())));
+        globals.borrow_mut().define("clock", Value::Callable(CallableVariant::Native(NativeFunction::clock())));
         Self {
             environment: BoxedEnvironment::clone(&globals),
             globals,
@@ -63,7 +63,7 @@ impl TreeWalk {
 
     fn eval_class_decl(&mut self, stmt: &ClassDecl) -> Result<()> {
         let class = Class::new(stmt.name.lexeme.clone());
-        self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Class(class));
+        self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Callable(CallableVariant::Class(class)));
         Ok(())
     }
 
@@ -83,7 +83,7 @@ impl TreeWalk {
             stmt,
             &self.environment,
         ));
-        self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Function(function));
+        self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Callable(function));
         Ok(())
     }
 
@@ -190,7 +190,7 @@ impl TreeWalk {
 
     fn eval_call(&mut self, callee: &Expr, paren: &Token, args: &[Expr]) -> Result<Value> {
         let callee = match self.eval_expr(callee)? {
-            Value::Function(callable) => callable,
+            Value::Callable(callable) => callable,
             _ => return Err(RuntimeError::NotValidCallable { token: paren.clone() }),
         };
         if args.len() != callee.arity() {

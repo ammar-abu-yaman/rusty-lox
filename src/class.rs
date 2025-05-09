@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::{function::Callable, instance::Instance, interpreter::{Interpreter, RuntimeError}, syntax::Value};
+
 #[derive(Debug, Clone)]
 pub struct Class {
     name: String,
@@ -8,6 +10,16 @@ pub struct Class {
 impl Class {
     pub fn new(name: String) -> Self {
         Self { name }
+    }
+}
+
+impl Callable for Class {
+    fn call(&self, _interpreter: &mut impl Interpreter, _arguments: Vec<Value>) -> Result<Value, RuntimeError> {
+        Ok(Value::Instance(Instance::new(self.clone())))
+    }
+
+    fn arity(&self) -> usize {
+        0
     }
 }
 

@@ -1,6 +1,6 @@
 use std::{fmt::{Debug, Display}, time::SystemTime};
 
-use crate::{interpreter::{BoxedEnvironment, Environment, Interpreter, RuntimeError}, syntax::{BlockStatement, FunctionDecl, Statement, Value}, token::Token};
+use crate::{class::Class, interpreter::{BoxedEnvironment, Environment, Interpreter, RuntimeError}, syntax::{BlockStatement, FunctionDecl, Statement, Value}, token::Token};
 
 pub enum FunctionType {
     Function,
@@ -25,6 +25,7 @@ pub trait Callable {
 pub enum CallableVariant {
     Native(NativeFunction),
     Defined(Function),
+    Class(Class),
 }
 
 
@@ -33,6 +34,7 @@ impl Callable for CallableVariant {
         match self {
             CallableVariant::Native(native) => native.call(interpreter, args),
             CallableVariant::Defined(function) => function.call(interpreter, args),
+            CallableVariant::Class(class) => class.call(interpreter, args),
         }
     }
 
@@ -40,6 +42,7 @@ impl Callable for CallableVariant {
         match self {
             CallableVariant::Native(native) => native.arity(),
             CallableVariant::Defined(function) => function.arity(),
+            CallableVariant::Class(class) => class.arity(),
         }
     }
 }
@@ -49,6 +52,7 @@ impl Display for CallableVariant {
         match self {
             CallableVariant::Native(native) => write!(f, "{native}"),
             CallableVariant::Defined(function) => write!(f, "{function}"),
+            CallableVariant::Class(class) => write!(f, "{class}"),
         }
     }
 }

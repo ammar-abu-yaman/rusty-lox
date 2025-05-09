@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{class::Class, function::CallableVariant, token::Token};
+use crate::{class::Class, function::CallableVariant, instance::Instance, token::Token};
 
 pub type BoxedExpr = Box<Expr>;
 pub type BoxedStatement = Box<Statement>;
@@ -116,8 +116,8 @@ pub enum Expr {
 pub enum Value {
     Number(f64),
     String(String),
-    Function(CallableVariant),
-    Class(Class),
+    Callable(CallableVariant),
+    Instance(Instance),
     Bool(bool),
     Nil,
 }
@@ -129,8 +129,8 @@ impl Display for Value {
             Value::String(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Nil => write!(f, "nil"),
-            Value::Function(callable) => write!(f, "{callable}"),
-            Value::Class(class) => write!(f, "{class}"),
+            Value::Callable(callable) => write!(f, "{callable}"),
+            Value::Instance(instance) => write!(f, "{instance}"),
         }
     }
 }

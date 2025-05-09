@@ -18,6 +18,7 @@ mod env;
 mod function;
 mod class;
 mod resolver;
+mod instance;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
