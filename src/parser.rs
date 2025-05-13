@@ -276,11 +276,14 @@ impl RecursiveDecendantParser {
         if self.peek().token_type == TokenType::Asign {
             let equals = self.advance();
             let value = self.assignment()?;
-            if let Expr::Variable { name, ..} = &expr {
-                return Ok(Expr::assign(name.clone(), value));
+            match expr {
+                Expr::Variable { name, .. } => return Ok(Expr::assign(name.clone(), value)),
+                Expr::Get { name, object, .. } => return Ok(Expr::set(object, name, value)), 
+                _ => {
+                    self.has_error = true;
+                    log::error_token(&equals, "Invalid assignment target.");
+                }
             }
-            self.has_error = true;
-            log::error_token(&equals, "Invalid assignment target.");
         }
         Ok(expr)
     }
@@ -382,19 +385,28 @@ impl RecursiveDecendantParser {
 
     fn call(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.primary()?;
-        while let TokenType::LeftParen = self.peek().token_type {
-            self.advance();
-            let args = match self.peek().token_type {
-                TokenType::RightParen => vec![],
-                _ => self.arguments()?,
-            };
-            if args.len() >= 255 {
-                self.has_error = true;
-                log::error_token(self.peek(), "Can't have more than 255 arguments.");
+        while matches!(self.peek().token_type, TokenType::Dot | TokenType::LeftParen) {
+            match self.advance().token_type {
+                TokenType::Dot => {
+                    let name = self.consume(TokenType::Identifier, "Expect property name after '.'.")?;
+                    expr = Expr::get(expr, name);
+                },
+                TokenType::LeftParen => {
+                    let args = match self.peek().token_type {
+                        TokenType::RightParen => vec![],
+                        _ => self.arguments()?,
+                    };
+                    if args.len() >= 255 {
+                        self.has_error = true;
+                        log::error_token(self.peek(), "Can't have more than 255 arguments.");
+                    }
+                    let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments.")?;
+                    expr = Expr::call(expr, paren, args);
+                },
+                _ => unreachable!()    
             }
-            let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments.")?;
-            expr = Expr::call(expr, paren, args);
         }
+
         Ok(expr)
     }
 

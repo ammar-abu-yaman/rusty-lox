@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{cell::RefCell, fmt::Display, rc::Rc};
 
 use crate::{class::Class, function::CallableVariant, instance::Instance, token::Token};
 
@@ -109,6 +109,15 @@ pub enum Expr {
         callee: BoxedExpr,
         paren: Token,
         args: Vec<Expr>,
+    },
+    Get {
+        object: BoxedExpr,
+        name: Token,
+    },
+    Set {
+        object: BoxedExpr,
+        name: Token,
+        value: BoxedExpr,
     }
 }
 
@@ -117,7 +126,7 @@ pub enum Value {
     Number(f64),
     String(String),
     Callable(CallableVariant),
-    Instance(Instance),
+    Instance(Rc<RefCell<Instance>>),
     Bool(bool),
     Nil,
 }
@@ -130,7 +139,7 @@ impl Display for Value {
             Value::Bool(b) => write!(f, "{b}"),
             Value::Nil => write!(f, "nil"),
             Value::Callable(callable) => write!(f, "{callable}"),
-            Value::Instance(instance) => write!(f, "{instance}"),
+            Value::Instance(instance) => write!(f, "{}", instance.borrow()),
         }
     }
 }
@@ -188,23 +197,38 @@ impl Expr {
             args,
         }
     }
+
+    pub fn get(object: Expr, name: Token) -> Self {
+        Self::Get {
+            object: BoxedExpr::new(object),
+            name,
+        }
+    }
+
+    pub fn set(object: BoxedExpr, name: Token, value: Expr) -> Self {
+        Self::Set {
+            object,
+            name,
+            value: BoxedExpr::new(value),
+        }
+    }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Asign { name: Token { lexeme, .. }, value, .. } => {
-                write!(f, "(= {lexeme} {value})")
-            },
+                                write!(f, "(= {lexeme} {value})")
+                            },
             Expr::Binary {
-                        left,
-                        operator: Token { lexeme, .. },
-                        right,
-                    } => write!(f, "({lexeme} {left} {right})"),
+                                        left,
+                                        operator: Token { lexeme, .. },
+                                        right,
+                                    } => write!(f, "({lexeme} {left} {right})"),
             Expr::Unary {
-                        operator: Token { lexeme, .. },
-                        expr,
-                    } => write!(f, "({lexeme} {expr})"),
+                                        operator: Token { lexeme, .. },
+                                        expr,
+                                    } => write!(f, "({lexeme} {expr})"),
             Expr::Grouping(expr) => write!(f, "(group {expr})"),
             Expr::Literal(Value::Bool(b)) => write!(f, "{b}"),
             Expr::Literal(Value::String(s)) => write!(f, "{s}"),
@@ -215,15 +239,18 @@ impl Display for Expr {
             Expr::Literal(value) => write!(f, "{value}"),
             Expr::LogicalAnd { left, right } => write!(f, "(and {left} {right})"),
             Expr::Call { callee, args, ..  } => {
-                write!(f, "(call {callee} ")?;
-                if !args.is_empty() {
-                    write!(f, "{}", args[0])?;
-                    for arg in args.iter().skip(1) {
-                        write!(f, ", {arg}")?;
-                    }
-                }
-                write!(f, ")")
-            }
+                                write!(f, "(call {callee} ")?;
+                                if !args.is_empty() {
+                                    write!(f, "{}", args[0])?;
+                                    for arg in args.iter().skip(1) {
+                                        write!(f, ", {arg}")?;
+                                    }
+                                }
+                                write!(f, ")")
+                            }
+            Expr::Get { object, name: Token { lexeme, ..} } => write!(f, "(get {object} {lexeme})"),
+            Expr::Set { object, name: Token { lexeme, ..}, value } => write!(f, "(set {object} {lexeme} {value})"),
+                            
         }
     }
 }

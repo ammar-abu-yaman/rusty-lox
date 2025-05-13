@@ -124,27 +124,32 @@ impl <'a> Resolver<'a> {
     pub fn resolve_expr(&mut self, expr: &'a mut Expr) {
         match expr {
             Expr::Variable { name, height} => {
-                if self.scopes.last().map(|s| s.get(&name.lexeme[..]) == Some(&false)).unwrap_or(false) {
-                    self.has_err = true;
-                    log::error_token(name, "Can't read local variable in its own initializer.");
-                }
-                self.annotate(&name.lexeme, height);
-            },
+                        if self.scopes.last().map(|s| s.get(&name.lexeme[..]) == Some(&false)).unwrap_or(false) {
+                            self.has_err = true;
+                            log::error_token(name, "Can't read local variable in its own initializer.");
+                        }
+                        self.annotate(&name.lexeme, height);
+                    },
             Expr::Asign { name, value, height } => {
-                self.resolve_expr(value);
-                self.annotate(&name.lexeme, height);
-            },
+                        self.resolve_expr(value);
+                        self.annotate(&name.lexeme, height);
+                    },
             Expr::Unary { expr, .. } | Expr::Grouping(expr) => self.resolve_expr(expr),
             Expr::LogicalOr { left, right } 
-            | Expr::LogicalAnd { left, right } 
-            | Expr::Binary { left, right, .. } => {
-                self.resolve_expr(left);
-                self.resolve_expr(right);
-            },
+                    | Expr::LogicalAnd { left, right } 
+                    | Expr::Binary { left, right, .. } => {
+                        self.resolve_expr(left);
+                        self.resolve_expr(right);
+                    },
             Expr::Call { callee, args, .. } => {
-                self.resolve_expr(callee);
-                args.iter_mut().for_each(|arg| self.resolve_expr(arg));
-            },
+                        self.resolve_expr(callee);
+                        args.iter_mut().for_each(|arg| self.resolve_expr(arg));
+                    },
+            Expr::Get { object, .. } => self.resolve_expr(object),
+            Expr::Set { object, value, .. } => {
+                self.resolve_expr(value);
+                self.resolve_expr(object);
+            }
             Expr::Literal(_) => {},
         }
     }

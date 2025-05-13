@@ -1,15 +1,33 @@
-use std::fmt::Display;
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
 
-use crate::class::Class;
+use crate::{class::Class, interpreter::RuntimeError, syntax::Value, token::Token};
 
 #[derive(Debug, Clone)]
 pub struct Instance {
     class: Class,
+    fields: HashMap<String, Value>,
 }
 
 impl Instance {
     pub fn new(class: Class) -> Self {
-        Self { class }
+        Self { class, fields: HashMap::new() }
+    }
+
+    pub fn boxed(class: Class) -> Rc<RefCell<Self>> {
+        Rc::new(RefCell::new(Self::new(class)))
+    }
+}
+
+impl Instance {
+    pub fn get(&self, name: &Token) -> Result<Value, RuntimeError> {
+        match self.fields.get(&name.lexeme) {
+            Some(value) => Ok(value.clone()),
+            None => Err(RuntimeError::UndefinedProperty { token: name.clone() })
+        }
+    }
+
+    pub fn set(&mut self, name: impl Into<String>, value: Value) {
+        self.fields.insert(name.into(), value);
     }
 }
 

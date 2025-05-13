@@ -15,7 +15,7 @@ impl Class {
 
 impl Callable for Class {
     fn call(&self, _interpreter: &mut impl Interpreter, _arguments: Vec<Value>) -> Result<Value, RuntimeError> {
-        Ok(Value::Instance(Instance::new(self.clone())))
+        Ok(Value::Instance(Instance::boxed(self.clone())))
     }
 
     fn arity(&self) -> usize {

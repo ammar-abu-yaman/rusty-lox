@@ -143,31 +143,49 @@ impl TreeWalk {
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value> {
         match expr {
             Expr::Asign { name, value, height } => {
-                let value = self.eval_expr(value)?;
-                match height {
-                    Some(h) => self.environment.borrow_mut().assign_at(name.clone(), value.clone(), *h),
-                    None => self.globals.borrow_mut().assign(name.clone(), value.clone())?,
-                }
-                Ok(value)
-            },
+                                let value = self.eval_expr(value)?;
+                                match height {
+                                    Some(h) => self.environment.borrow_mut().assign_at(name.clone(), value.clone(), *h),
+                                    None => self.globals.borrow_mut().assign(name.clone(), value.clone())?,
+                                }
+                                Ok(value)
+                            },
             Expr::Binary {
-                left,
-                operator,
-                right,
-            } => self.eval_binary(left, operator, right),
+                                left,
+                                operator,
+                                right,
+                            } => self.eval_binary(left, operator, right),
             Expr::Unary { operator, expr } => self.eval_unary(operator, expr),
             Expr::Grouping(expr) => self.eval_expr(expr),
             Expr::Literal(value) => Ok(value.clone()),
             Expr::Variable { name, height } => {
-                match self.lookup_var(name, *height) {
-                    Some(value) => Ok(value.clone()),
-                    None => Err(RuntimeError::UndefinedVariable { token: name.clone() })
-                }
-            },
+                                match self.lookup_var(name, *height) {
+                                    Some(value) => Ok(value.clone()),
+                                    None => Err(RuntimeError::UndefinedVariable { token: name.clone() })
+                                }
+                            },
             Expr::LogicalOr { left, right } => self.eval_or(left, right),
             Expr::LogicalAnd { left, right } => self.eval_and(left, right),
             Expr::Call { callee, paren, args } => self.eval_call(callee, paren, args),
+            Expr::Get { object, name } => self.eval_get(object, name),
+            Expr::Set { object, name, value } => self.eval_set(object, name, value),
         }
+    }
+
+    fn eval_get(&mut self, object: &Expr, name: &Token) -> Result<Value> {
+        match self.eval_expr(object)? {
+            Value::Instance(instance) => instance.borrow().get(&name),
+            _ => return Err(RuntimeError::NotAnInstance { token: name.clone() }),
+        }
+    }
+
+    fn eval_set(&mut self, object: &Expr, name: &Token, value: &Expr) -> Result<Value>  {
+        let Value::Instance(object) = self.eval_expr(object)? else {
+            return Err(RuntimeError::NotAnInstance { token: name.clone() });
+        };
+        let value = self.eval_expr(value)?;
+        object.borrow_mut().set(&name.lexeme, value.clone());
+        Ok(value)
     }
 
     fn eval_or(&mut self, left: &Expr, right: &Expr) -> Result<Value> {
