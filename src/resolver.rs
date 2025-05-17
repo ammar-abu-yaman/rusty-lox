@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::mem;
 
 use crate::log;
 use crate::syntax::{BlockStatement, ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, VariableDecl, WhileStatement};
@@ -7,9 +8,12 @@ use crate::token::Token;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ScopeType { Function, Method, Normal }
 
+enum ClassType { Class, None }
+
 pub struct Resolver<'a> {
     scopes: Vec<HashMap<&'a str, bool>>,
     current_scope: ScopeType,
+    current_class: ClassType,
     has_err: bool
 }
 
@@ -19,6 +23,7 @@ impl <'a> Resolver<'a> {
             scopes: vec![],
             current_scope: ScopeType::Normal,
             has_err: false,
+            current_class: ClassType::None,
         }
     }
 
@@ -49,10 +54,16 @@ impl <'a> Resolver<'a> {
     }
 
     fn resolve_class_decl(&mut self, stmt: &'a mut ClassDecl) {
+        let mut previos_class = ClassType::Class;
+        mem::swap(&mut self.current_class, &mut previos_class);
         self.declare(&stmt.name);
         self.define(&stmt.name.lexeme);
+        self.begin_scope();
+        self.scopes.last_mut().unwrap().insert("this", true);
         stmt.methods.iter_mut()
             .for_each(|method| self.resolve_function(&method.params, &mut method.body, ScopeType::Method));
+        self.end_scope();
+        self.current_class = previos_class;
     }
 
     fn resolve_var_decl(&mut self, stmt: &'a mut VariableDecl) {
@@ -151,7 +162,15 @@ impl <'a> Resolver<'a> {
             Expr::Set { object, value, .. } => {
                 self.resolve_expr(value);
                 self.resolve_expr(object);
-            }
+            },
+            Expr::This { keyword, height } => {
+                if matches!(self.current_class, ClassType::None) {
+                    self.has_err = true;
+                    log::error_token(&keyword, "Can't use 'this' outside of a class.");
+                } else {
+                    self.annotate(&keyword.lexeme, height)
+                }
+            },
             Expr::Literal(_) => {},
         }
     }

@@ -2,7 +2,7 @@ use super::{Evaluator, Interpreter, Result, RuntimeError};
 use crate::class::Class;
 use crate::env::{BoxedEnvironment, Environment};
 
-use crate::instance;
+use crate::instance::Instance;
 use crate::syntax::ClassDecl;
 use crate::{
     function::{Callable, CallableVariant, Function, NativeFunction}, syntax::{BlockStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Token, TokenType}
@@ -147,44 +147,47 @@ impl TreeWalk {
     
     fn eval_expr(&mut self, expr: &Expr) -> Result<Value> {
         match expr {
-            Expr::Asign { name, value, height } => {
-                                let value = self.eval_expr(value)?;
-                                match height {
-                                    Some(h) => self.environment.borrow_mut().assign_at(name.clone(), value.clone(), *h),
-                                    None => self.globals.borrow_mut().assign(name.clone(), value.clone())?,
-                                }
-                                Ok(value)
-                            },
-            Expr::Binary {
-                                left,
-                                operator,
-                                right,
-                            } => self.eval_binary(left, operator, right),
+            Expr::Asign { name, value, height } => self.eval_assignment(name, value, height),
+            Expr::Binary { left, operator, right} => self.eval_binary(left, operator, right),
             Expr::Unary { operator, expr } => self.eval_unary(operator, expr),
             Expr::Grouping(expr) => self.eval_expr(expr),
             Expr::Literal(value) => Ok(value.clone()),
-            Expr::Variable { name, height } => {
-                                match self.lookup_var(name, *height) {
-                                    Some(value) => Ok(value.clone()),
-                                    None => Err(RuntimeError::UndefinedVariable { token: name.clone() })
-                                }
-                            },
+            Expr::Variable { name, height } => self.eval_variable(name, height),
             Expr::LogicalOr { left, right } => self.eval_or(left, right),
             Expr::LogicalAnd { left, right } => self.eval_and(left, right),
             Expr::Call { callee, paren, args } => self.eval_call(callee, paren, args),
             Expr::Get { object, name } => self.eval_get(object, name),
             Expr::Set { object, name, value } => self.eval_set(object, name, value),
+            Expr::This { keyword, height } => self.eval_this(keyword, height),
         }
     }
 
+    fn eval_assignment(&mut self, name: &Token, value: &Box<Expr>, height: &Option<usize>) -> std::result::Result<Value, RuntimeError> {
+        let value = self.eval_expr(value)?;
+        match height {
+            Some(h) => self.environment.borrow_mut().assign_at(name.clone(), value.clone(), *h),
+            None => self.globals.borrow_mut().assign(name.clone(), value.clone())?,
+        }
+        Ok(value)
+    }
+    
+    fn eval_variable(&mut self, name: &Token, height: &Option<usize>) -> std::result::Result<Value, RuntimeError> {
+        match self.lookup_var(name, *height) {
+            Some(value) => Ok(value.clone()),
+            None => Err(RuntimeError::UndefinedVariable { token: name.clone() })
+        }
+    }
+    
+    fn eval_this(&mut self, keyword: &Token, height: &Option<usize>) -> std::result::Result<Value, RuntimeError> {
+        match self.lookup_var(keyword, *height) {
+            Some(value) => Ok(value.clone()),
+            None => Err(RuntimeError::UndefinedVariable { token: keyword.clone() })
+        }
+    }
+    
     fn eval_get(&mut self, object: &Expr, name: &Token) -> Result<Value> {
         match self.eval_expr(object)? {
-            Value::Instance(instance) => {
-                let instance = instance.borrow();
-                instance.get(name)
-                    .or_else(|| instance.class.method(&name.lexeme).map(|method| Value::Callable(CallableVariant::Defined(method))))
-                    .ok_or_else(|| RuntimeError::UndefinedProperty { token: name.clone() })
-            },
+            Value::Instance(instance) => Instance::get(&instance, name),
             _ => return Err(RuntimeError::NotAnInstance { token: name.clone() }),
         }
     }

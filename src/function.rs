@@ -1,6 +1,6 @@
-use std::{fmt::{Debug, Display}, time::SystemTime};
+use std::{cell::RefCell, fmt::{Debug, Display}, rc::Rc, time::SystemTime};
 
-use crate::{class::Class, interpreter::{BoxedEnvironment, Environment, Interpreter, RuntimeError}, syntax::{BlockStatement, FunctionDecl, Statement, Value}, token::Token};
+use crate::{class::Class, instance::Instance, interpreter::{BoxedEnvironment, Environment, Interpreter, RuntimeError}, syntax::{BlockStatement, FunctionDecl, Statement, Value}, token::Token};
 
 pub enum FunctionType {
     Function,
@@ -73,6 +73,19 @@ impl Function {
             params: decl.params.clone(),
             body: decl.body.clone(),
             closure: env,
+        }
+    }
+}
+
+impl Function {
+    pub fn bind(&self, instance: &Rc<RefCell<Instance>>) -> Self {
+        let binded_env = Environment::boxed_with_enclosing(&self.closure);
+        binded_env.borrow_mut().define("this", Value::Instance(Rc::clone(instance)));
+        Self {
+            name: self.name.clone(),
+            params: self.params.clone(),
+            body: self.body.clone(),
+            closure: binded_env,
         }
     }
 }

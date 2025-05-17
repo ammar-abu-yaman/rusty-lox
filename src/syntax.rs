@@ -118,6 +118,10 @@ pub enum Expr {
         object: BoxedExpr,
         name: Token,
         value: BoxedExpr,
+    },
+    This {
+        keyword: Token,
+        height: Option<usize>,
     }
 }
 
@@ -212,6 +216,13 @@ impl Expr {
             value: BoxedExpr::new(value),
         }
     }
+
+    pub fn this(keyword: Token) -> Self {
+        Self::This { 
+            keyword: keyword,
+            height: None
+        }
+    }
 }
 
 impl Display for Expr {
@@ -250,6 +261,7 @@ impl Display for Expr {
                             }
             Expr::Get { object, name: Token { lexeme, ..} } => write!(f, "(get {object} {lexeme})"),
             Expr::Set { object, name: Token { lexeme, ..}, value } => write!(f, "(set {object} {lexeme} {value})"),
+            Expr::This { .. } => write!(f, "this"),
                             
         }
     }

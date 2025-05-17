@@ -453,6 +453,7 @@ impl RecursiveDecendantParser {
                 self.consume(RightParen, "Expect ')' after expression.")?;
                 Ok(Expr::grouping(expr))
             },
+            keyword @ Token { token_type: This, ..} => Ok(Expr::this(keyword)),
             token @ Token {
                 token_type: Identifier,
                 ..

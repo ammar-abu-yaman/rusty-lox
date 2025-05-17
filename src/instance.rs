@@ -1,10 +1,10 @@
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
+use std::{cell::{Ref, RefCell}, collections::HashMap, fmt::Display, rc::Rc};
 
-use crate::{class::Class, syntax::Value, token::Token};
+use crate::{class::Class, function::CallableVariant, interpreter::RuntimeError, syntax::Value, token::Token};
 
 #[derive(Debug, Clone)]
 pub struct Instance {
-    pub class: Class,
+    class: Class,
     fields: HashMap<String, Value>,
 }
 
@@ -19,11 +19,14 @@ impl Instance {
 }
 
 impl Instance {
-    pub fn get(&self, name: &Token) -> Option<Value>{
-        match self.fields.get(&name.lexeme) {
-            Some(value) => Some(value.clone()),
-            None => None,
+    pub fn get(this: &Rc<RefCell<Self>>, name: &Token) -> Result<Value, RuntimeError> {
+        if let Some(field) = this.borrow().fields.get(&name.lexeme) {
+            return Ok(field).cloned()
         }
+        if let Some(method) = this.borrow().class.method(&name.lexeme) {
+            return Ok(Value::Callable(CallableVariant::Defined(method.bind(this))));
+        }
+        Err(RuntimeError::UndefinedProperty { token: name.clone() })
     }
 
     pub fn set(&mut self, name: impl Into<String>, value: Value) {
