@@ -92,7 +92,7 @@ impl RecursiveDecendantParser {
         let mut methods = vec![];
         while !matches!(self.peek().token_type, TokenType::Eof | TokenType::RightBrace) {
             match self.peek().token_type {
-                TokenType::Fun => methods.push(self.function_declaration(FunctionType::Method)?),
+                TokenType::Identifier => methods.push(self.function_declaration(FunctionType::Method)?),
                 _ => {},
             }
         }
@@ -116,7 +116,9 @@ impl RecursiveDecendantParser {
     }
 
     fn function_declaration(&mut self, kind: FunctionType) -> Result<FunctionDecl, ParseError> {
-        self.consume(TokenType::Fun, format!("Expect 'fun' before function name."))?;
+        if matches!(kind, FunctionType::Function) {
+            self.consume(TokenType::Fun, format!("Expect 'fun' before function name."))?;
+        }
         let name = self.consume(TokenType::Identifier, format!("Expect '{kind}' name."))?;
         self.consume(TokenType::LeftParen, format!("Expect '(' after {kind} name."))?;
         let params = self.parameters()?;

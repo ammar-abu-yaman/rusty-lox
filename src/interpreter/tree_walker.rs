@@ -2,6 +2,7 @@ use super::{Evaluator, Interpreter, Result, RuntimeError};
 use crate::class::Class;
 use crate::env::{BoxedEnvironment, Environment};
 
+use crate::instance;
 use crate::syntax::ClassDecl;
 use crate::{
     function::{Callable, CallableVariant, Function, NativeFunction}, syntax::{BlockStatement, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Token, TokenType}
@@ -62,8 +63,13 @@ impl TreeWalk {
     }
 
     fn eval_class_decl(&mut self, stmt: &ClassDecl) -> Result<()> {
-        let class = Class::new(stmt.name.lexeme.clone());
-        self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Callable(CallableVariant::Class(class)));
+        let name  = stmt.name.lexeme.clone();
+        self.environment.borrow_mut().define(name.clone(), Value::Nil);
+        let methods = stmt.methods.iter()
+            .map(|decl| (decl.name.lexeme.clone(), Function::new(decl, BoxedEnvironment::clone(&self.environment))))
+            .collect();
+        let class = Class::new(name, methods);
+        self.environment.borrow_mut().assign(stmt.name.clone(), Value::Callable(CallableVariant::Class(class)))?;
         Ok(())
     }
 
@@ -72,7 +78,6 @@ impl TreeWalk {
         let value = match &stmt.initializer {
             Some(initializer) => self.eval_expr(initializer)?,
             None => Value::Nil,
-            
         };
         self.environment.borrow_mut().define(name, value);
         Ok(())
@@ -81,7 +86,7 @@ impl TreeWalk {
     fn eval_fun_decl(&mut self, stmt: &FunctionDecl) -> Result<()> {
         let function = CallableVariant::Defined(Function::new(
             stmt,
-            &self.environment,
+            BoxedEnvironment::clone(&self.environment),
         ));
         self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Callable(function));
         Ok(())
@@ -174,7 +179,12 @@ impl TreeWalk {
 
     fn eval_get(&mut self, object: &Expr, name: &Token) -> Result<Value> {
         match self.eval_expr(object)? {
-            Value::Instance(instance) => instance.borrow().get(&name),
+            Value::Instance(instance) => {
+                let instance = instance.borrow();
+                instance.get(name)
+                    .or_else(|| instance.class.method(&name.lexeme).map(|method| Value::Callable(CallableVariant::Defined(method))))
+                    .ok_or_else(|| RuntimeError::UndefinedProperty { token: name.clone() })
+            },
             _ => return Err(RuntimeError::NotAnInstance { token: name.clone() }),
         }
     }

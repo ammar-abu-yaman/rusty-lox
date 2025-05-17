@@ -5,7 +5,7 @@ use crate::syntax::{BlockStatement, ClassDecl, Expr, ExpressionStatement, Functi
 use crate::token::Token;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ScopeType { Function, Normal }
+enum ScopeType { Function, Method, Normal }
 
 pub struct Resolver<'a> {
     scopes: Vec<HashMap<&'a str, bool>>,
@@ -51,6 +51,8 @@ impl <'a> Resolver<'a> {
     fn resolve_class_decl(&mut self, stmt: &'a mut ClassDecl) {
         self.declare(&stmt.name);
         self.define(&stmt.name.lexeme);
+        stmt.methods.iter_mut()
+            .for_each(|method| self.resolve_function(&method.params, &mut method.body, ScopeType::Method));
     }
 
     fn resolve_var_decl(&mut self, stmt: &'a mut VariableDecl) {

@@ -1,15 +1,16 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
-use crate::{function::Callable, instance::Instance, interpreter::{Interpreter, RuntimeError}, syntax::Value};
+use crate::{function::{Callable, Function}, instance::Instance, interpreter::{Interpreter, RuntimeError}, syntax::Value};
 
 #[derive(Debug, Clone)]
 pub struct Class {
     name: String,
+    methods: HashMap<String, Function>,
 }
 
 impl Class {
-    pub fn new(name: String) -> Self {
-        Self { name }
+    pub fn new(name: String, methods: HashMap<String, Function>) -> Self {
+        Self { name, methods }
     }
 }
 
@@ -20,6 +21,12 @@ impl Callable for Class {
 
     fn arity(&self) -> usize {
         0
+    }
+}
+
+impl Class {
+    pub fn method(&self, name: &str) -> Option<Function> {
+        self.methods.get(name).cloned()
     }
 }
 

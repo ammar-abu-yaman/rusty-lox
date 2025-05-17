@@ -1,10 +1,10 @@
 use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
 
-use crate::{class::Class, interpreter::RuntimeError, syntax::Value, token::Token};
+use crate::{class::Class, syntax::Value, token::Token};
 
 #[derive(Debug, Clone)]
 pub struct Instance {
-    class: Class,
+    pub class: Class,
     fields: HashMap<String, Value>,
 }
 
@@ -19,10 +19,10 @@ impl Instance {
 }
 
 impl Instance {
-    pub fn get(&self, name: &Token) -> Result<Value, RuntimeError> {
+    pub fn get(&self, name: &Token) -> Option<Value>{
         match self.fields.get(&name.lexeme) {
-            Some(value) => Ok(value.clone()),
-            None => Err(RuntimeError::UndefinedProperty { token: name.clone() })
+            Some(value) => Some(value.clone()),
+            None => None,
         }
     }
 

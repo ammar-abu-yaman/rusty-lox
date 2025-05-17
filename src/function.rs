@@ -67,12 +67,12 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn new(decl: &FunctionDecl, env: &BoxedEnvironment) -> Self {
+    pub fn new(decl: &FunctionDecl, env: BoxedEnvironment) -> Self {
         Self { 
             name: decl.name.clone(),
             params: decl.params.clone(),
             body: decl.body.clone(),
-            closure: BoxedEnvironment::clone(&env),
+            closure: env,
         }
     }
 }
