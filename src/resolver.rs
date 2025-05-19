@@ -6,7 +6,7 @@ use crate::syntax::{BlockStatement, ClassDecl, Expr, ExpressionStatement, Functi
 use crate::token::Token;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ScopeType { Function, Method, Normal }
+enum ScopeType { Function, Method, Initializer, Normal }
 
 enum ClassType { Class, None }
 
@@ -60,8 +60,15 @@ impl <'a> Resolver<'a> {
         self.define(&stmt.name.lexeme);
         self.begin_scope();
         self.scopes.last_mut().unwrap().insert("this", true);
-        stmt.methods.iter_mut()
-            .for_each(|method| self.resolve_function(&method.params, &mut method.body, ScopeType::Method));
+
+        for FunctionDecl {name, params, body} in &mut stmt.methods {
+            let method_scope =  match &name.lexeme[..] {
+                "init" => ScopeType::Initializer,
+                _ => ScopeType::Method
+            };
+            self.resolve_function(params, body, method_scope);
+        }
+        
         self.end_scope();
         self.current_class = previos_class;
     }
@@ -128,6 +135,10 @@ impl <'a> Resolver<'a> {
             log::error_token(&stmt.return_token, "Can't return from top-level code.");
         }
         if let Some(value) = &mut stmt.value {
+            if self.current_scope == ScopeType::Initializer {
+                self.has_err = true;
+                log::error_token(&stmt.return_token, "Can't return a value from an initializer.");
+            }
             self.resolve_expr(value);
         }
     }

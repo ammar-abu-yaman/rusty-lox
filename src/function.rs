@@ -64,15 +64,17 @@ pub struct Function {
     params: Vec<Token>,
     body: Vec<Statement>,
     closure: BoxedEnvironment,
+    is_init: bool,
 }
 
 impl Function {
-    pub fn new(decl: &FunctionDecl, env: BoxedEnvironment) -> Self {
+    pub fn new(decl: &FunctionDecl, env: BoxedEnvironment, is_init: bool) -> Self {
         Self { 
             name: decl.name.clone(),
             params: decl.params.clone(),
             body: decl.body.clone(),
             closure: env,
+            is_init,
         }
     }
 }
@@ -85,6 +87,7 @@ impl Function {
             name: self.name.clone(),
             params: self.params.clone(),
             body: self.body.clone(),
+            is_init: self.is_init,
             closure: binded_env,
         }
     }
@@ -104,7 +107,9 @@ impl Callable for Function {
             environment.borrow_mut().define(param.lexeme.clone(), args.next().unwrap());
         }
         match interpreter.interpret_block(&BlockStatement{ statements: self.body.clone() } , environment) {
+            Ok(_) if self.is_init => Ok(self.closure.borrow().get("this").unwrap()),
             Ok(_) => Ok(Value::Nil),
+            Err(RuntimeError::Return(_)) if self.is_init => Ok(self.closure.borrow().get("this").unwrap()),
             Err(RuntimeError::Return(value)) => Ok(value.unwrap_or(Value::Nil)),
             Err(e) => Err(e),
         }

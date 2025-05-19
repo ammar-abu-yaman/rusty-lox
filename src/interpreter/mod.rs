@@ -28,7 +28,7 @@ pub enum RuntimeError {
     NotValidCallable { token: Token },
     #[error("Expected {expected} arguments but got {actual}.\n[line {}]", token.pos.line)]
     InvalidArgumentCount { token: Token, expected: usize, actual: usize },
-    #[error("Only instances have properties.\n[line {}", token.pos.line)]
+    #[error("Only instances have properties.\n[line {}]", token.pos.line)]
     NotAnInstance { token: Token },
     #[error("Undefined property '{}'.\n[line {}]", token.lexeme, token.pos.line)]
     UndefinedProperty { token: Token },

@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
-use crate::{function::{Callable, Function}, instance::Instance, interpreter::{Interpreter, RuntimeError}, syntax::Value};
+use crate::{function::{Callable, Function}, instance::Instance, interpreter::{self, Interpreter, RuntimeError}, syntax::Value};
 
 #[derive(Debug, Clone)]
 pub struct Class {
@@ -15,12 +15,18 @@ impl Class {
 }
 
 impl Callable for Class {
-    fn call(&self, _interpreter: &mut impl Interpreter, _arguments: Vec<Value>) -> Result<Value, RuntimeError> {
-        Ok(Value::Instance(Instance::boxed(self.clone())))
+    fn call(&self, interpreter: &mut impl Interpreter, args: Vec<Value>) -> Result<Value, RuntimeError> {
+        let instance = Instance::boxed(self.clone());
+        if let Some(initializer) = self.method("init") {
+            initializer.bind(&instance).call(interpreter, args)?;
+        }
+        Ok(Value::Instance(instance))
     }
 
     fn arity(&self) -> usize {
-        0
+        self.method("init")
+            .map(|init| init.arity())
+            .unwrap_or(0)
     }
 }
 

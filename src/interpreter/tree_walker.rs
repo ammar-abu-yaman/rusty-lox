@@ -66,7 +66,12 @@ impl TreeWalk {
         let name  = stmt.name.lexeme.clone();
         self.environment.borrow_mut().define(name.clone(), Value::Nil);
         let methods = stmt.methods.iter()
-            .map(|decl| (decl.name.lexeme.clone(), Function::new(decl, BoxedEnvironment::clone(&self.environment))))
+            .map(|decl| {
+                let method_name = decl.name.lexeme.clone();
+                let closure = BoxedEnvironment::clone(&self.environment);
+                let is_init = method_name == "init";
+                (method_name, Function::new(decl, closure, is_init))
+            })
             .collect();
         let class = Class::new(name, methods);
         self.environment.borrow_mut().assign(stmt.name.clone(), Value::Callable(CallableVariant::Class(class)))?;
@@ -87,6 +92,7 @@ impl TreeWalk {
         let function = CallableVariant::Defined(Function::new(
             stmt,
             BoxedEnvironment::clone(&self.environment),
+            false,
         ));
         self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Callable(function));
         Ok(())
@@ -188,7 +194,7 @@ impl TreeWalk {
     fn eval_get(&mut self, object: &Expr, name: &Token) -> Result<Value> {
         match self.eval_expr(object)? {
             Value::Instance(instance) => Instance::get(&instance, name),
-            _ => return Err(RuntimeError::NotAnInstance { token: name.clone() }),
+            _ => Err(RuntimeError::NotAnInstance { token: name.clone() }),
         }
     }
 
