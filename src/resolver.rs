@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::mem;
 
@@ -39,7 +40,7 @@ impl Default for Resolver<'_> {
 }
 
 impl <'a> Resolver<'a> {
-    pub fn resolve_stmt(&mut self, stmt: &'a mut Statement) {
+    pub fn resolve_stmt(&mut self, stmt: &'a Statement) {
         match stmt {
             Statement::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
             Statement::Print(print_statement) => self.resolve_print_stmt(print_statement),
@@ -53,15 +54,23 @@ impl <'a> Resolver<'a> {
         }
     }
 
-    fn resolve_class_decl(&mut self, stmt: &'a mut ClassDecl) {
+    fn resolve_class_decl(&mut self, stmt: &'a ClassDecl) {
         let mut previos_class = ClassType::Class;
         mem::swap(&mut self.current_class, &mut previos_class);
         self.declare(&stmt.name);
         self.define(&stmt.name.lexeme);
+
+        if let Some(super_expr @ Expr::Variable { name, .. }) = &stmt.superclass {
+            if  name.lexeme == stmt.name.lexeme {
+                self.has_err = true;
+                log::error_token(name, "A class can't inherit from itself.");
+            }
+            self.resolve_expr(&super_expr);
+        }
+
         self.begin_scope();
         self.scopes.last_mut().unwrap().insert("this", true);
-
-        for FunctionDecl {name, params, body} in &mut stmt.methods {
+        for FunctionDecl {name, params, body} in &stmt.methods {
             let method_scope =  match &name.lexeme[..] {
                 "init" => ScopeType::Initializer,
                 _ => ScopeType::Method
@@ -73,50 +82,50 @@ impl <'a> Resolver<'a> {
         self.current_class = previos_class;
     }
 
-    fn resolve_var_decl(&mut self, stmt: &'a mut VariableDecl) {
+    fn resolve_var_decl(&mut self, stmt: &'a VariableDecl) {
         self.declare(&stmt.name);
-        if let Some(initializer) = &mut stmt.initializer {
+        if let Some(initializer) = &stmt.initializer {
             self.resolve_expr(initializer);
         }
         self.define(&stmt.name.lexeme);
     }
 
-    fn resolve_block_stmt(&mut self, stmt: &'a mut BlockStatement) {
+    fn resolve_block_stmt(&mut self, stmt: &'a BlockStatement) {
         self.begin_scope();
-        for statement in &mut stmt.statements {
+        for statement in &stmt.statements {
             self.resolve_stmt(statement);
         }
         self.end_scope();
     }
 
-    fn resolve_print_stmt(&mut self, stmt: &'a mut PrintStatement) {
-        self.resolve_expr(&mut stmt.expr);
+    fn resolve_print_stmt(&mut self, stmt: &'a PrintStatement) {
+        self.resolve_expr(&stmt.expr);
     }
 
-    fn resolve_expr_stmt(&mut self, stmt: &'a mut ExpressionStatement) {
-        self.resolve_expr(&mut stmt.expr);
+    fn resolve_expr_stmt(&mut self, stmt: &'a ExpressionStatement) {
+        self.resolve_expr(&stmt.expr);
     }
 
-    fn resolve_if_stmt(&mut self, stmt: &'a mut IfStatemnet) {
-        self.resolve_expr(&mut stmt.condition);
-        self.resolve_stmt(&mut stmt.if_branch);
-        if let Some(else_branch) = &mut stmt.else_branch {
+    fn resolve_if_stmt(&mut self, stmt: &'a IfStatemnet) {
+        self.resolve_expr(&stmt.condition);
+        self.resolve_stmt(&stmt.if_branch);
+        if let Some(else_branch) = &stmt.else_branch {
             self.resolve_stmt(else_branch);
         }
     }
 
-    fn resolve_while_stmt(&mut self, stmt: &'a mut WhileStatement) {
-        self.resolve_expr(&mut stmt.condition);
-        self.resolve_stmt(&mut stmt.body);
+    fn resolve_while_stmt(&mut self, stmt: &'a WhileStatement) {
+        self.resolve_expr(&stmt.condition);
+        self.resolve_stmt(&stmt.body);
     }
 
-    fn resolve_fun_decl(&mut self, stmt: &'a mut FunctionDecl) {
+    fn resolve_fun_decl(&mut self, stmt: &'a FunctionDecl) {
         self.declare(&stmt.name);
         self.define(&stmt.name.lexeme);
-        self.resolve_function(&mut stmt.params, &mut stmt.body, ScopeType::Function);
+        self.resolve_function(&stmt.params, &stmt.body, ScopeType::Function);
     }   
 
-    fn resolve_function(&mut self, params: &'a Vec<Token>, stmts: &'a mut Vec<Statement>, scope_type: ScopeType) {
+    fn resolve_function(&mut self, params: &'a Vec<Token>, stmts: &'a Vec<Statement>, scope_type: ScopeType) {
         let old_scope = self.current_scope;
         self.current_scope = scope_type;
         self.begin_scope();
@@ -124,17 +133,17 @@ impl <'a> Resolver<'a> {
             self.declare(&param);
             self.define(&param.lexeme);
         }
-        stmts.iter_mut().for_each(|stmt| self.resolve_stmt(stmt));
+        stmts.iter().for_each(|stmt| self.resolve_stmt(stmt));
         self.end_scope();
         self.current_scope = old_scope;        
     }
 
-    fn resolve_return_stmt(&mut self, stmt: &'a mut ReturnStatement) {
+    fn resolve_return_stmt(&mut self, stmt: &'a ReturnStatement) {
         if self.current_scope == ScopeType::Normal {
             self.has_err = true;
             log::error_token(&stmt.return_token, "Can't return from top-level code.");
         }
-        if let Some(value) = &mut stmt.value {
+        if let Some(value) = &stmt.value {
             if self.current_scope == ScopeType::Initializer {
                 self.has_err = true;
                 log::error_token(&stmt.return_token, "Can't return a value from an initializer.");
@@ -145,7 +154,7 @@ impl <'a> Resolver<'a> {
 }   
 
 impl <'a> Resolver<'a> {
-    pub fn resolve_expr(&mut self, expr: &'a mut Expr) {
+    pub fn resolve_expr(&mut self, expr: &'a Expr) {
         match expr {
             Expr::Variable { name, height} => {
                         if self.scopes.last().map(|s| s.get(&name.lexeme[..]) == Some(&false)).unwrap_or(false) {
@@ -167,7 +176,7 @@ impl <'a> Resolver<'a> {
                     },
             Expr::Call { callee, args, .. } => {
                         self.resolve_expr(callee);
-                        args.iter_mut().for_each(|arg| self.resolve_expr(arg));
+                        args.iter().for_each(|arg| self.resolve_expr(arg));
                     },
             Expr::Get { object, .. } => self.resolve_expr(object),
             Expr::Set { object, value, .. } => {
@@ -217,12 +226,12 @@ impl <'a> Resolver<'a> {
         }
     }
 
-    fn annotate(&mut self, name: &str, height: &mut Option<usize>) {
+    fn annotate(&mut self, name: &str, height: &Cell<Option<usize>>) {
         if let Some((index, _)) = self.scopes.iter()
             .rev()
             .enumerate()
             .find(|(_, s)| s.contains_key(name)) {
-                height.insert(index);
+                height.set(Some(index));
         }
     }
 }

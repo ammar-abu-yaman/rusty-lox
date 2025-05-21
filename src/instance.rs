@@ -1,4 +1,4 @@
-use std::{cell::{Ref, RefCell}, collections::HashMap, fmt::Display, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
 
 use crate::{class::Class, function::CallableVariant, interpreter::RuntimeError, syntax::Value, token::Token};
 

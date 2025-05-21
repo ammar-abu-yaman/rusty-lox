@@ -32,6 +32,8 @@ pub enum RuntimeError {
     NotAnInstance { token: Token },
     #[error("Undefined property '{}'.\n[line {}]", token.lexeme, token.pos.line)]
     UndefinedProperty { token: Token },
+    #[error("Superclass must be a class.\n[line {}]", token.pos.line)]
+    SuperclassMustBeAClass { token: Token },
     #[error("")]
     Return(Option<Value>),
 }

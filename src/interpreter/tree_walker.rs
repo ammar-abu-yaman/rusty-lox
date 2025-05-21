@@ -1,3 +1,6 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use super::{Evaluator, Interpreter, Result, RuntimeError};
 use crate::class::Class;
 use crate::env::{BoxedEnvironment, Environment};
@@ -65,6 +68,16 @@ impl TreeWalk {
     fn eval_class_decl(&mut self, stmt: &ClassDecl) -> Result<()> {
         let name  = stmt.name.lexeme.clone();
         self.environment.borrow_mut().define(name.clone(), Value::Nil);
+
+        let superclass = match &stmt.superclass {
+            Some(expr @ Expr::Variable { name, .. }) => match self.eval_expr(expr)? {
+                Value::Callable(CallableVariant::Class(class)) => Some(class),
+                _ => return Err(RuntimeError::SuperclassMustBeAClass { token: name.clone() }),
+            },
+            None => None,
+            Some(_) => unreachable!(),
+        };
+
         let methods = stmt.methods.iter()
             .map(|decl| {
                 let method_name = decl.name.lexeme.clone();
@@ -73,7 +86,8 @@ impl TreeWalk {
                 (method_name, Function::new(decl, closure, is_init))
             })
             .collect();
-        let class = Class::new(name, methods);
+        
+        let class = Class::new(name, methods, superclass.map(Rc::new));
         self.environment.borrow_mut().assign(stmt.name.clone(), Value::Callable(CallableVariant::Class(class)))?;
         Ok(())
     }
@@ -168,24 +182,24 @@ impl TreeWalk {
         }
     }
 
-    fn eval_assignment(&mut self, name: &Token, value: &Box<Expr>, height: &Option<usize>) -> std::result::Result<Value, RuntimeError> {
+    fn eval_assignment(&mut self, name: &Token, value: &Box<Expr>, height: &Cell<Option<usize>>) -> std::result::Result<Value, RuntimeError> {
         let value = self.eval_expr(value)?;
-        match height {
-            Some(h) => self.environment.borrow_mut().assign_at(name.clone(), value.clone(), *h),
+        match height.get() {
+            Some(h) => self.environment.borrow_mut().assign_at(name.clone(), value.clone(), h),
             None => self.globals.borrow_mut().assign(name.clone(), value.clone())?,
         }
         Ok(value)
     }
     
-    fn eval_variable(&mut self, name: &Token, height: &Option<usize>) -> std::result::Result<Value, RuntimeError> {
-        match self.lookup_var(name, *height) {
+    fn eval_variable(&mut self, name: &Token, height: &Cell<Option<usize>>) -> std::result::Result<Value, RuntimeError> {
+        match self.lookup_var(name, height.get()) {
             Some(value) => Ok(value.clone()),
             None => Err(RuntimeError::UndefinedVariable { token: name.clone() })
         }
     }
     
-    fn eval_this(&mut self, keyword: &Token, height: &Option<usize>) -> std::result::Result<Value, RuntimeError> {
-        match self.lookup_var(keyword, *height) {
+    fn eval_this(&mut self, keyword: &Token, height: &Cell<Option<usize>>) -> std::result::Result<Value, RuntimeError> {
+        match self.lookup_var(keyword, height.get()) {
             Some(value) => Ok(value.clone()),
             None => Err(RuntimeError::UndefinedVariable { token: keyword.clone() })
         }

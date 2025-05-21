@@ -1,16 +1,17 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, rc::Rc};
 
-use crate::{function::{Callable, Function}, instance::Instance, interpreter::{self, Interpreter, RuntimeError}, syntax::Value};
+use crate::{function::{Callable, Function}, instance::Instance, interpreter::{Interpreter, RuntimeError}, syntax::Value};
 
 #[derive(Debug, Clone)]
 pub struct Class {
     name: String,
     methods: HashMap<String, Function>,
+    superclass: Option<Rc<Class>>,
 }
 
 impl Class {
-    pub fn new(name: String, methods: HashMap<String, Function>) -> Self {
-        Self { name, methods }
+    pub fn new(name: String, methods: HashMap<String, Function>, superclass: Option<Rc<Class>>) -> Self {
+        Self { name, methods, superclass }
     }
 }
 

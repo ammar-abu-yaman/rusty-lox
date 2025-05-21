@@ -1,6 +1,6 @@
-use std::{cell::RefCell, fmt::Display, rc::Rc};
+use std::{cell::{Cell, RefCell}, fmt::Display, rc::Rc};
 
-use crate::{class::Class, function::CallableVariant, instance::Instance, token::Token};
+use crate::{function::CallableVariant, instance::Instance, token::Token};
 
 pub type BoxedExpr = Box<Expr>;
 pub type BoxedStatement = Box<Statement>;
@@ -21,6 +21,7 @@ pub enum Statement {
 #[derive(Debug, Clone)]
 pub struct ClassDecl {
     pub name: Token,
+    pub superclass: Option<Expr>,
     pub methods: Vec<FunctionDecl>, 
 }
 
@@ -79,7 +80,7 @@ pub struct ExpressionStatement {
 pub enum Expr {
     Asign {
         name: Token,
-        height: Option<usize>,
+        height: Cell<Option<usize>>,
         value: BoxedExpr,
     },
     Binary {
@@ -95,7 +96,7 @@ pub enum Expr {
     Literal(Value),
     Variable {
         name: Token,
-        height: Option<usize>,
+        height: Cell<Option<usize>>,
     },
     LogicalOr{
         left: BoxedExpr,
@@ -121,7 +122,7 @@ pub enum Expr {
     },
     This {
         keyword: Token,
-        height: Option<usize>,
+        height: Cell<Option<usize>>,
     }
 }
 
@@ -168,7 +169,7 @@ impl Expr {
         }
     }
 
-    pub fn variable(name: Token, height: Option<usize>) -> Self {
+    pub fn variable(name: Token, height: Cell<Option<usize>>) -> Self {
         Self::Variable { name, height }
     }
 
@@ -176,7 +177,7 @@ impl Expr {
         Self::Asign {
             name,
             value: BoxedExpr::new(value),
-            height: None,
+            height: Cell::new(None),
         }
     }
 
@@ -220,7 +221,7 @@ impl Expr {
     pub fn this(keyword: Token) -> Self {
         Self::This { 
             keyword: keyword,
-            height: None
+            height: Cell::new(None)
         }
     }
 }

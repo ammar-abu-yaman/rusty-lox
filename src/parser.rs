@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use anyhow::Result;
 use thiserror::Error;
 
@@ -88,6 +90,14 @@ impl RecursiveDecendantParser {
     fn class_declaration(&mut self) -> Result<ClassDecl, ParseError> {
         self.consume(TokenType::Class, "Expect 'class' before class name.")?;
         let name = self.consume(TokenType::Identifier, "Expect class name.")?;
+        let superclass = if self.peek().token_type == TokenType::Less {
+            self.advance();
+            let superclass = self.consume(TokenType::Identifier, "Expect superclass name.")?;
+            Some(Expr::variable(superclass, Cell::new(None)))
+        } else {
+            None
+        };
+
         self.consume(TokenType::LeftBrace, "Expect '{' before class body.")?;
         let mut methods = vec![];
         while !matches!(self.peek().token_type, TokenType::Eof | TokenType::RightBrace) {
@@ -98,7 +108,7 @@ impl RecursiveDecendantParser {
         }
         self.consume(TokenType::RightBrace, "Expect '}' after class body.")?;
 
-        Ok(ClassDecl { name, methods })
+        Ok(ClassDecl { name, methods, superclass })
     }
 
     fn variable_declaration(&mut self) -> Result<VariableDecl, ParseError> {
@@ -457,7 +467,7 @@ impl RecursiveDecendantParser {
             token @ Token {
                 token_type: Identifier,
                 ..
-            } => Ok(Expr::variable(token.clone(), None)),
+            } => Ok(Expr::variable(token.clone(), Cell::new(None))),
             token => {
                 log::error_token(&token, "Expect expression.");
                 Err(ParseError::ExpressionError)
