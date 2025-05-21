@@ -123,6 +123,11 @@ pub enum Expr {
     This {
         keyword: Token,
         height: Cell<Option<usize>>,
+    },
+    Super {
+        keyword: Token,
+        method: Token,
+        height: Cell<Option<usize>>,
     }
 }
 
@@ -224,23 +229,18 @@ impl Expr {
             height: Cell::new(None)
         }
     }
+
+    pub fn super_(keyword: Token, method: Token) -> Self {
+        Self::Super { keyword, method, height: Cell::new(None) }
+    }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Asign { name: Token { lexeme, .. }, value, .. } => {
-                                write!(f, "(= {lexeme} {value})")
-                            },
-            Expr::Binary {
-                                        left,
-                                        operator: Token { lexeme, .. },
-                                        right,
-                                    } => write!(f, "({lexeme} {left} {right})"),
-            Expr::Unary {
-                                        operator: Token { lexeme, .. },
-                                        expr,
-                                    } => write!(f, "({lexeme} {expr})"),
+            Expr::Asign { name: Token { lexeme, .. }, value, .. } => write!(f, "(= {lexeme} {value})"),
+            Expr::Binary { left, operator: Token { lexeme, .. }, right} => write!(f, "({lexeme} {left} {right})"),
+            Expr::Unary { operator: Token { lexeme, .. }, expr} => write!(f, "({lexeme} {expr})"),
             Expr::Grouping(expr) => write!(f, "(group {expr})"),
             Expr::Literal(Value::Bool(b)) => write!(f, "{b}"),
             Expr::Literal(Value::String(s)) => write!(f, "{s}"),
@@ -251,19 +251,19 @@ impl Display for Expr {
             Expr::Literal(value) => write!(f, "{value}"),
             Expr::LogicalAnd { left, right } => write!(f, "(and {left} {right})"),
             Expr::Call { callee, args, ..  } => {
-                                write!(f, "(call {callee} ")?;
-                                if !args.is_empty() {
-                                    write!(f, "{}", args[0])?;
-                                    for arg in args.iter().skip(1) {
-                                        write!(f, ", {arg}")?;
-                                    }
-                                }
-                                write!(f, ")")
-                            }
+                write!(f, "(call {callee} ")?;
+                if !args.is_empty() {
+                    write!(f, "{}", args[0])?;
+                    for arg in args.iter().skip(1) {
+                        write!(f, ", {arg}")?;
+                    }
+                }
+                write!(f, ")")
+            }
             Expr::Get { object, name: Token { lexeme, ..} } => write!(f, "(get {object} {lexeme})"),
             Expr::Set { object, name: Token { lexeme, ..}, value } => write!(f, "(set {object} {lexeme} {value})"),
             Expr::This { .. } => write!(f, "this"),
-                            
+            Expr::Super { method: Token { lexeme, .. }, .. } => write!(f, "(super {lexeme})")
         }
     }
 }

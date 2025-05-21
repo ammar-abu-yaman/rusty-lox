@@ -67,7 +67,6 @@ impl TreeWalk {
 
     fn eval_class_decl(&mut self, stmt: &ClassDecl) -> Result<()> {
         let name  = stmt.name.lexeme.clone();
-        self.environment.borrow_mut().define(name.clone(), Value::Nil);
 
         let superclass = match &stmt.superclass {
             Some(expr @ Expr::Variable { name, .. }) => match self.eval_expr(expr)? {
@@ -77,6 +76,14 @@ impl TreeWalk {
             None => None,
             Some(_) => unreachable!(),
         };
+        let superclass = superclass.map(Rc::new);
+        
+        self.environment.borrow_mut().define(name.clone(), Value::Nil);
+
+        if let Some(superclass) = &superclass {
+            self.environment = Environment::boxed_with_enclosing(&self.environment);
+            self.environment.borrow_mut().define("super".to_string(), Value::Callable(CallableVariant::Class(superclass.as_ref().clone())));
+        }
 
         let methods = stmt.methods.iter()
             .map(|decl| {
@@ -86,8 +93,13 @@ impl TreeWalk {
                 (method_name, Function::new(decl, closure, is_init))
             })
             .collect();
-        
-        let class = Class::new(name, methods, superclass.map(Rc::new));
+
+        let class = Class::new(name, methods, superclass.clone());
+
+        if superclass.is_some() {
+            let enclosing_env = self.environment.borrow().enclosing().unwrap();
+            self.environment = enclosing_env;
+        }
         self.environment.borrow_mut().assign(stmt.name.clone(), Value::Callable(CallableVariant::Class(class)))?;
         Ok(())
     }
@@ -179,7 +191,22 @@ impl TreeWalk {
             Expr::Get { object, name } => self.eval_get(object, name),
             Expr::Set { object, name, value } => self.eval_set(object, name, value),
             Expr::This { keyword, height } => self.eval_this(keyword, height),
+            Expr::Super { keyword, method, height} => self.eval_super(keyword, method, height),
         }
+    }
+
+    fn eval_super(&mut self, keyword: &Token, method: &Token, height: &Cell<Option<usize>>) -> Result<Value> {
+        let Some(Value::Callable(CallableVariant::Class(superclass))) = self.lookup_var(keyword, height.get()) else {
+            panic!("Superclass not found");
+        };
+        let Value::Instance(object) = self.environment.borrow().get_at("this", height.get().unwrap() - 1).unwrap() else {
+            panic!("This is not found");
+        };
+        let Some(method) = superclass.method(&method.lexeme) else {
+            return Err(RuntimeError::UndefinedProperty { token: method.clone() });
+        };
+        let method = method.bind(&object);
+        Ok(Value::Callable(CallableVariant::Defined(method)))
     }
 
     fn eval_assignment(&mut self, name: &Token, value: &Box<Expr>, height: &Cell<Option<usize>>) -> std::result::Result<Value, RuntimeError> {

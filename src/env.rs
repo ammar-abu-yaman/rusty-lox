@@ -41,6 +41,11 @@ impl Default for Environment {
 
 
 impl Environment {
+
+    pub fn enclosing(&self) -> Option<BoxedEnvironment> {
+        self.enclosing.clone()
+    }
+
     pub fn get(&self, name: &str) -> Option<Value> {
         match self.values.get(name) {
             Some(value) => Some(value.clone()),

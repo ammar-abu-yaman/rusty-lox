@@ -464,6 +464,11 @@ impl RecursiveDecendantParser {
                 Ok(Expr::grouping(expr))
             },
             keyword @ Token { token_type: This, ..} => Ok(Expr::this(keyword)),
+            keyword @ Token { token_type: Super, .. } => {
+                self.consume(TokenType::Dot, "Expect '.' after 'super'.")?;
+                let method = self.consume(TokenType::Identifier, "Expect superclass method name.")?;
+                Ok(Expr::super_(keyword, method ))
+            }
             token @ Token {
                 token_type: Identifier,
                 ..

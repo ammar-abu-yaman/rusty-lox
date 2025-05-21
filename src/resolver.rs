@@ -9,7 +9,7 @@ use crate::token::Token;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ScopeType { Function, Method, Initializer, Normal }
 
-enum ClassType { Class, None }
+enum ClassType { Class, Subclass, None }
 
 pub struct Resolver<'a> {
     scopes: Vec<HashMap<&'a str, bool>>,
@@ -65,7 +65,10 @@ impl <'a> Resolver<'a> {
                 self.has_err = true;
                 log::error_token(name, "A class can't inherit from itself.");
             }
+            self.current_class = ClassType::Subclass;
             self.resolve_expr(&super_expr);
+            self.begin_scope();
+            self.scopes.last_mut().unwrap().insert("super", true);
         }
 
         self.begin_scope();
@@ -79,6 +82,9 @@ impl <'a> Resolver<'a> {
         }
         
         self.end_scope();
+        if stmt.superclass.is_some() {
+            self.end_scope();
+        }
         self.current_class = previos_class;
     }
 
@@ -191,6 +197,19 @@ impl <'a> Resolver<'a> {
                     self.annotate(&keyword.lexeme, height)
                 }
             },
+            Expr::Super {keyword, height, ..} => {
+                match self.current_class {
+                    ClassType::None => {
+                        self.has_err = true;
+                        log::error_token(&keyword, "Can't use 'super' outside of a class.");
+                    },
+                    ClassType::Class => {
+                        self.has_err = true;
+                        log::error_token(&keyword, "Can't use 'super' in a class with no superclass.");
+                    },
+                    ClassType::Subclass => self.annotate(&keyword.lexeme, height),
+                }
+            }
             Expr::Literal(_) => {},
         }
     }
