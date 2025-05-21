@@ -33,7 +33,9 @@ impl Callable for Class {
 
 impl Class {
     pub fn method(&self, name: &str) -> Option<Function> {
-        self.methods.get(name).cloned()
+        self.methods.get(name)
+            .cloned()
+            .or_else(|| self.superclass.as_ref().and_then(|superclass| superclass.method(name)))
     }
 }
 
