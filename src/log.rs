@@ -1,7 +1,5 @@
-use crate::{
-    interpreter::RuntimeError,
-    token::{Literal, Token, TokenType},
-};
+use crate::interpreter::RuntimeError;
+use crate::token::{Literal, Token, TokenType};
 
 pub fn error_unkown_symbol(line: u64, s: &str) {
     eprintln!("[line {line}] Error: Unexpected character: {s}");
@@ -15,10 +13,7 @@ pub fn error_token(token: &Token, err: &str) {
     if token.token_type == TokenType::Eof {
         eprintln!("[line {}] Error at end: {err}", token.pos.line);
     } else {
-        eprintln!(
-            "[line {}] Error at '{}': {err}",
-            token.pos.line, token.lexeme
-        );
+        eprintln!("[line {}] Error at '{}': {err}", token.pos.line, token.lexeme);
     }
 }
 
@@ -27,12 +22,7 @@ pub fn error_runtime(err: &RuntimeError) {
 }
 
 pub fn token(token: &Token) {
-    println!(
-        "{} {} {}",
-        token_name(token),
-        token.lexeme,
-        token_value(token)
-    )
+    println!("{} {} {}", token_name(token), token.lexeme, token_value(token))
 }
 
 pub fn token_value(token: &Token) -> String {

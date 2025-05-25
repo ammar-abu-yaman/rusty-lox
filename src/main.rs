@@ -8,17 +8,17 @@ use resolver::Resolver;
 use scanner::Scanner;
 use token::TokenType;
 
+mod class;
+mod env;
+mod function;
+mod instance;
 mod interpreter;
 mod log;
 mod parser;
+mod resolver;
 mod scanner;
 mod syntax;
 mod token;
-mod env;
-mod function;
-mod class;
-mod resolver;
-mod instance;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -38,7 +38,7 @@ fn main() -> io::Result<()> {
         _ => {
             writeln!(io::stderr(), "Unknown command: {}", command).unwrap();
             return Ok(());
-        }
+        },
     }
 
     return Ok(());
@@ -86,7 +86,6 @@ fn evaluate(filename: &str) -> Result<(), io::Error> {
         exit(65);
     }
 
-    
     let mut interpreter = interpreter::TreeWalk::new();
     let value = interpreter.eval(&expr.unwrap());
     match value {
@@ -94,7 +93,7 @@ fn evaluate(filename: &str) -> Result<(), io::Error> {
         Err(e) => {
             log::error_runtime(&e);
             exit(70);
-        }
+        },
     }
 
     Ok(())
@@ -104,7 +103,7 @@ fn run(filename: &str) -> Result<(), io::Error> {
     let file = File::open(filename)?;
     let mut scanner = Scanner::try_from(file)?;
     let mut parser = RecursiveDecendantParser::new();
-    let mut resolver = Resolver::new(); 
+    let mut resolver = Resolver::new();
     let mut interpreter = interpreter::TreeWalk::new();
 
     let statements = parser.parse(&mut scanner);

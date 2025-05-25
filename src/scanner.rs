@@ -1,13 +1,9 @@
 use core::str;
-use std::{
-    fs::File,
-    io::{self, Read},
-};
+use std::fs::File;
+use std::io::{self, Read};
 
-use crate::{
-    log,
-    token::{Token, TokenType},
-};
+use crate::log;
+use crate::token::{Token, TokenType};
 
 pub struct Scanner {
     source: Vec<u8>,
@@ -29,6 +25,7 @@ impl Scanner {
 
 impl TryFrom<File> for Scanner {
     type Error = io::Error;
+
     fn try_from(mut file: File) -> io::Result<Self> {
         let mut source = Vec::new();
         file.read_to_end(&mut source)?;
@@ -86,7 +83,7 @@ impl Scanner {
                 '/' if self.matchup('/') => {
                     self.skip_line();
                     continue;
-                }
+                },
                 '/' => Token::symbol(Div, "/", line, offset),
                 '"' => self.string(line, offset),
                 '0'..='9' => return self.number(line, offset),
@@ -97,7 +94,7 @@ impl Scanner {
                     self.has_error = true;
                     log::error_unkown_symbol(self.line, c.to_string().as_str());
                     continue;
-                }
+                },
             };
             return token;
         }
@@ -147,7 +144,7 @@ impl Scanner {
                     log::error(self.line, "Unterminated string.");
                     self.has_error = true;
                     return Token::eof(line);
-                }
+                },
             }
         }
         let lexeme = str::from_utf8(&self.source[offset as usize..self.current]).unwrap();
@@ -176,9 +173,6 @@ impl Scanner {
     }
 
     fn peek_offset(&mut self, offset: u64) -> Option<char> {
-        self.source
-            .get(self.current + offset as usize)
-            .copied()
-            .map(|c| c as char)
+        self.source.get(self.current + offset as usize).copied().map(|c| c as char)
     }
 }

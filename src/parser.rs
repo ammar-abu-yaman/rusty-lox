@@ -3,9 +3,14 @@ use std::cell::Cell;
 use anyhow::Result;
 use thiserror::Error;
 
-use crate::{
-    function::FunctionType, log, scanner::Scanner, syntax::{BlockStatement, BoxedStatement, ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement}, token::{Literal, Token, TokenType}
+use crate::function::FunctionType;
+use crate::log;
+use crate::scanner::Scanner;
+use crate::syntax::{
+    BlockStatement, BoxedStatement, ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value,
+    VariableDecl, WhileStatement,
 };
+use crate::token::{Literal, Token, TokenType};
 
 pub trait Parser {
     fn parse(&mut self, scanner: &mut Scanner) -> Option<Vec<Statement>>;
@@ -71,7 +76,7 @@ impl RecursiveDecendantParser {
                 Err(_) => {
                     self.has_error = true;
                     self.synchronize();
-                },    
+                },
             }
         }
         statements
@@ -134,11 +139,7 @@ impl RecursiveDecendantParser {
         let params = self.parameters()?;
         self.consume(TokenType::RightParen, "message: Expect ')' after parameters.")?;
         let body = self.block_statement(Some(kind))?.statements;
-        return Ok(FunctionDecl {
-            name,
-            params,
-            body,
-        });
+        return Ok(FunctionDecl { name, params, body });
     }
 
     fn parameters(&mut self) -> Result<Vec<Token>, ParseError> {
@@ -172,10 +173,13 @@ impl RecursiveDecendantParser {
 
     fn block_statement(&mut self, block_type: Option<FunctionType>) -> Result<BlockStatement, ParseError> {
         let mut statements = vec![];
-        self.consume(TokenType::LeftBrace, match block_type {
-            Some(func_type) => format!("Expect '{{' before {func_type} body."),
-            None => "Expect '{{' before block.".to_string(),
-        })?;
+        self.consume(
+            TokenType::LeftBrace,
+            match block_type {
+                Some(func_type) => format!("Expect '{{' before {func_type} body."),
+                None => "Expect '{{' before block.".to_string(),
+            },
+        )?;
         while !matches!(self.peek().token_type, TokenType::RightBrace | TokenType::Eof) {
             let statement = self.declaration()?;
             statements.push(statement);
@@ -195,7 +199,7 @@ impl RecursiveDecendantParser {
             TokenType::Else => {
                 self.advance();
                 Some(BoxedStatement::new(self.statement()?))
-            }
+            },
             _ => None,
         };
         Ok(IfStatemnet {
@@ -223,11 +227,11 @@ impl RecursiveDecendantParser {
         self.consume(TokenType::SemiColon, "Expect ';' after return value.")?;
         Ok(ReturnStatement { return_token, value })
     }
-    
+
     fn desugar_for_statement(&mut self) -> Result<Statement, ParseError> {
         self.consume(TokenType::For, "Expect 'for' before body.")?;
         self.consume(TokenType::LeftParen, "Expect '(' after 'for'.")?;
-        
+
         let initializer = match self.peek().token_type {
             TokenType::SemiColon => {
                 self.advance();
@@ -249,18 +253,25 @@ impl RecursiveDecendantParser {
 
         let body = self.statement()?;
         let body = match increment {
-            Some(expr) => Statement::Block(BlockStatement { statements: vec![
-                body,
-                Statement::Expr(ExpressionStatement { expr }),
-            ] }),
+            Some(expr) => Statement::Block(BlockStatement {
+                statements: vec![body, Statement::Expr(ExpressionStatement { expr })],
+            }),
             None => body,
         };
         let body = match condition {
-            Some(expr) => Statement::While(WhileStatement { condition: expr, body: BoxedStatement::new(body) }),
-            None => Statement::While(WhileStatement { condition: Expr::Literal(Value::Bool(true)), body: BoxedStatement::new(body) }),
+            Some(expr) => Statement::While(WhileStatement {
+                condition: expr,
+                body: BoxedStatement::new(body),
+            }),
+            None => Statement::While(WhileStatement {
+                condition: Expr::Literal(Value::Bool(true)),
+                body: BoxedStatement::new(body),
+            }),
         };
         let body = match initializer {
-            Some(statement) => Statement::Block(BlockStatement { statements: vec![statement, body] }),
+            Some(statement) => Statement::Block(BlockStatement {
+                statements: vec![statement, body],
+            }),
             None => body,
         };
         Ok(body)
@@ -290,11 +301,11 @@ impl RecursiveDecendantParser {
             let value = self.assignment()?;
             match expr {
                 Expr::Variable { name, .. } => return Ok(Expr::assign(name.clone(), value)),
-                Expr::Get { name, object, .. } => return Ok(Expr::set(object, name, value)), 
+                Expr::Get { name, object, .. } => return Ok(Expr::set(object, name, value)),
                 _ => {
                     self.has_error = true;
                     log::error_token(&equals, "Invalid assignment target.");
-                }
+                },
             }
         }
         Ok(expr)
@@ -312,7 +323,10 @@ impl RecursiveDecendantParser {
 
     fn logical_and(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.equality()?;
-        while let Token { token_type: TokenType::And, ..} = self.peek() {
+        while let Token {
+            token_type: TokenType::And, ..
+        } = self.peek()
+        {
             self.advance();
             let right = self.equality()?;
             expr = Expr::and(expr, right);
@@ -324,8 +338,7 @@ impl RecursiveDecendantParser {
         use TokenType::*;
         let mut expr = self.comparision()?;
         while let Token {
-            token_type: Equal | NotEqual,
-            ..
+            token_type: Equal | NotEqual, ..
         } = self.peek()
         {
             let opr = self.advance();
@@ -353,11 +366,7 @@ impl RecursiveDecendantParser {
     fn term(&mut self) -> Result<Expr, ParseError> {
         use TokenType::*;
         let mut expr = self.factor()?;
-        while let Token {
-            token_type: Plus | Minus,
-            ..
-        } = self.peek()
-        {
+        while let Token { token_type: Plus | Minus, .. } = self.peek() {
             let opr = self.advance();
             let right = self.factor()?;
             expr = Expr::binary(expr, opr, right);
@@ -368,11 +377,7 @@ impl RecursiveDecendantParser {
     fn factor(&mut self) -> Result<Expr, ParseError> {
         use TokenType::*;
         let mut expr = self.unary()?;
-        while let Token {
-            token_type: Div | Star,
-            ..
-        } = self.peek()
-        {
+        while let Token { token_type: Div | Star, .. } = self.peek() {
             let opr = self.advance();
             let right = self.unary()?;
             expr = Expr::binary(expr, opr, right);
@@ -383,14 +388,11 @@ impl RecursiveDecendantParser {
     fn unary(&mut self) -> Result<Expr, ParseError> {
         use TokenType::*;
         match self.peek() {
-            Token {
-                token_type: Not | Minus,
-                ..
-            } => {
+            Token { token_type: Not | Minus, .. } => {
                 let opr = self.advance();
                 let expr = self.unary()?;
                 return Ok(Expr::unary(opr, expr));
-            }
+            },
             _ => self.call(),
         }
     }
@@ -415,7 +417,7 @@ impl RecursiveDecendantParser {
                     let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments.")?;
                     expr = Expr::call(expr, paren, args);
                 },
-                _ => unreachable!()    
+                _ => unreachable!(),
             }
         }
 
@@ -436,15 +438,9 @@ impl RecursiveDecendantParser {
     fn primary(&mut self) -> Result<Expr, ParseError> {
         use TokenType::*;
         match self.advance() {
-            Token {
-                token_type: Nil, ..
-            } => Ok(Expr::Literal(Value::Nil)),
-            Token {
-                token_type: True, ..
-            } => Ok(Expr::Literal(Value::Bool(true))),
-            Token {
-                token_type: False, ..
-            } => Ok(Expr::Literal(Value::Bool(false))),
+            Token { token_type: Nil, .. } => Ok(Expr::Literal(Value::Nil)),
+            Token { token_type: True, .. } => Ok(Expr::Literal(Value::Bool(true))),
+            Token { token_type: False, .. } => Ok(Expr::Literal(Value::Bool(false))),
             Token {
                 token_type: Number,
                 literal: Literal::Number(n),
@@ -455,37 +451,29 @@ impl RecursiveDecendantParser {
                 literal: Literal::String(s),
                 ..
             } => Ok(Expr::Literal(Value::String(s))),
-            Token {
-                token_type: LeftParen,
-                ..
-            } => {
+            Token { token_type: LeftParen, .. } => {
                 let expr = self.expression()?;
                 self.consume(RightParen, "Expect ')' after expression.")?;
                 Ok(Expr::grouping(expr))
             },
-            keyword @ Token { token_type: This, ..} => Ok(Expr::this(keyword)),
+            keyword @ Token { token_type: This, .. } => Ok(Expr::this(keyword)),
             keyword @ Token { token_type: Super, .. } => {
                 self.consume(TokenType::Dot, "Expect '.' after 'super'.")?;
                 let method = self.consume(TokenType::Identifier, "Expect superclass method name.")?;
-                Ok(Expr::super_(keyword, method ))
-            }
-            token @ Token {
-                token_type: Identifier,
-                ..
-            } => Ok(Expr::variable(token.clone(), Cell::new(None))),
+                Ok(Expr::super_(keyword, method))
+            },
+            token @ Token { token_type: Identifier, .. } => Ok(Expr::variable(token.clone(), Cell::new(None))),
             token => {
                 log::error_token(&token, "Expect expression.");
                 Err(ParseError::ExpressionError)
-            }
+            },
         }
     }
 }
 
 impl RecursiveDecendantParser {
     fn peek(&self) -> &Token {
-        self.tokens
-            .get(self.current)
-            .unwrap_or_else(|| self.tokens.last().unwrap())
+        self.tokens.get(self.current).unwrap_or_else(|| self.tokens.last().unwrap())
     }
 
     fn advance(&mut self) -> Token {
@@ -502,7 +490,7 @@ impl RecursiveDecendantParser {
             token => {
                 log::error_token(token, &message.into());
                 Err(ParseError::UnexpectedToken)
-            }
+            },
         }
     }
 
@@ -515,8 +503,10 @@ impl RecursiveDecendantParser {
             }
             match self.peek().token_type {
                 Class | Fun | Var | For | If | While | Print | Return => return,
-                _ => { token = self.advance(); },
+                _ => {
+                    token = self.advance();
+                },
             }
-        } 
+        }
     }
 }

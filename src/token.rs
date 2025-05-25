@@ -7,13 +7,7 @@ pub struct Token {
 }
 
 impl Token {
-    pub fn new(
-        token_type: TokenType,
-        lexeme: impl Into<String>,
-        literal: Literal,
-        line: u64,
-        offset: u64,
-    ) -> Self {
+    pub fn new(token_type: TokenType, lexeme: impl Into<String>, literal: Literal, line: u64, offset: u64) -> Self {
         Self {
             token_type,
             lexeme: lexeme.into(),
@@ -22,36 +16,19 @@ impl Token {
         }
     }
 
-    pub fn symbol(
-        token_type: TokenType,
-        lexeme: impl Into<String>,
-        line: u64,
-        offset: u64,
-    ) -> Self {
+    pub fn symbol(token_type: TokenType, lexeme: impl Into<String>, line: u64, offset: u64) -> Self {
         Self::new(token_type, lexeme.into(), Literal::NoValue, line, offset)
     }
 
     pub fn textual(value: impl Into<String>, line: u64, offset: u64) -> Self {
         let value = value.into();
-        Self::new(
-            identifier_type(&value),
-            value,
-            Literal::NoValue,
-            line,
-            offset,
-        )
+        Self::new(identifier_type(&value), value, Literal::NoValue, line, offset)
     }
 
     pub fn string(value: impl Into<String>, line: u64, offset: u64) -> Self {
         let lexeme = value.into();
         let value = lexeme[1..lexeme.len() - 1].to_string();
-        Self::new(
-            TokenType::String,
-            lexeme,
-            Literal::String(value),
-            line,
-            offset,
-        )
+        Self::new(TokenType::String, lexeme, Literal::String(value), line, offset)
     }
 
     pub fn number(value: impl Into<String>, line: u64, offset: u64) -> Self {

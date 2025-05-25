@@ -1,6 +1,13 @@
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::rc::Rc;
 
-use crate::{class::Class, function::CallableVariant, interpreter::RuntimeError, syntax::Value, token::Token};
+use crate::class::Class;
+use crate::function::CallableVariant;
+use crate::interpreter::RuntimeError;
+use crate::syntax::Value;
+use crate::token::Token;
 
 #[derive(Debug, Clone)]
 pub struct Instance {
@@ -21,7 +28,7 @@ impl Instance {
 impl Instance {
     pub fn get(this: &Rc<RefCell<Self>>, name: &Token) -> Result<Value, RuntimeError> {
         if let Some(field) = this.borrow().fields.get(&name.lexeme) {
-            return Ok(field).cloned()
+            return Ok(field).cloned();
         }
         if let Some(method) = this.borrow().class.method(&name.lexeme) {
             return Ok(Value::Callable(CallableVariant::Defined(method.bind(this))));

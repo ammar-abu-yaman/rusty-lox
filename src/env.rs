@@ -1,8 +1,10 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
-
-use crate::{syntax::Value, token::Token};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
 
 use super::interpreter::RuntimeError;
+use crate::syntax::Value;
+use crate::token::Token;
 
 pub type BoxedEnvironment = Rc<RefCell<Environment>>;
 pub type ValueMap = HashMap<String, Value>;
@@ -39,9 +41,7 @@ impl Default for Environment {
     }
 }
 
-
 impl Environment {
-
     pub fn enclosing(&self) -> Option<BoxedEnvironment> {
         self.enclosing.clone()
     }
@@ -59,7 +59,7 @@ impl Environment {
     pub fn get_at(&self, name: &str, height: usize) -> Option<Value> {
         match height {
             0 => self.values.get(name).cloned(),
-            h => self.enclosing.as_ref().and_then(|e| e.borrow().get_at(name, h - 1).clone())
+            h => self.enclosing.as_ref().and_then(|e| e.borrow().get_at(name, h - 1).clone()),
         }
     }
 
@@ -72,7 +72,7 @@ impl Environment {
             Some(existing_value) => {
                 *existing_value = value;
                 Ok(())
-            }
+            },
             None => match &mut self.enclosing {
                 Some(enclosing) => enclosing.borrow_mut().assign(name, value),
                 None => Err(RuntimeError::UndefinedVariable { token: name }),
@@ -82,12 +82,12 @@ impl Environment {
 
     pub fn assign_at(&mut self, name: Token, value: Value, height: usize) {
         match height {
-            0 => { self.values.insert(name.lexeme.clone(), value); },
-            h => { 
-                self.enclosing
-                    .as_ref()
-                    .map(|e| e.borrow_mut().assign_at(name, value, h - 1));
-            }
+            0 => {
+                self.values.insert(name.lexeme.clone(), value);
+            },
+            h => {
+                self.enclosing.as_ref().map(|e| e.borrow_mut().assign_at(name, value, h - 1));
+            },
         };
     }
 }

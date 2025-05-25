@@ -1,6 +1,13 @@
-use std::{cell::RefCell, fmt::{Debug, Display}, rc::Rc, time::SystemTime};
+use std::cell::RefCell;
+use std::fmt::{Debug, Display};
+use std::rc::Rc;
+use std::time::SystemTime;
 
-use crate::{class::Class, instance::Instance, interpreter::{BoxedEnvironment, Environment, Interpreter, RuntimeError}, syntax::{BlockStatement, FunctionDecl, Statement, Value}, token::Token};
+use crate::class::Class;
+use crate::instance::Instance;
+use crate::interpreter::{BoxedEnvironment, Environment, Interpreter, RuntimeError};
+use crate::syntax::{BlockStatement, FunctionDecl, Statement, Value};
+use crate::token::Token;
 
 pub enum FunctionType {
     Function,
@@ -27,7 +34,6 @@ pub enum CallableVariant {
     Defined(Function),
     Class(Class),
 }
-
 
 impl Callable for CallableVariant {
     fn call(&self, interpreter: &mut impl Interpreter, args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
@@ -57,7 +63,6 @@ impl Display for CallableVariant {
     }
 }
 
-
 #[derive(Clone)]
 pub struct Function {
     name: Token,
@@ -69,7 +74,7 @@ pub struct Function {
 
 impl Function {
     pub fn new(decl: &FunctionDecl, env: BoxedEnvironment, is_init: bool) -> Self {
-        Self { 
+        Self {
             name: decl.name.clone(),
             params: decl.params.clone(),
             body: decl.body.clone(),
@@ -106,7 +111,7 @@ impl Callable for Function {
         for param in &self.params {
             environment.borrow_mut().define(param.lexeme.clone(), args.next().unwrap());
         }
-        match interpreter.interpret_block(&BlockStatement{ statements: self.body.clone() } , environment) {
+        match interpreter.interpret_block(&BlockStatement { statements: self.body.clone() }, environment) {
             Ok(_) if self.is_init => Ok(self.closure.borrow().get("this").unwrap()),
             Ok(_) => Ok(Value::Nil),
             Err(RuntimeError::Return(_)) if self.is_init => Ok(self.closure.borrow().get("this").unwrap()),
@@ -182,8 +187,6 @@ impl Display for NativeFunction {
 }
 
 fn clock(_args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
-    let millis = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs_f64();
+    let millis = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs_f64();
     Ok(Value::Number(millis))
 }

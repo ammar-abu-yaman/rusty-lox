@@ -3,22 +3,33 @@ use std::collections::HashMap;
 use std::mem;
 
 use crate::log;
-use crate::syntax::{BlockStatement, ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, VariableDecl, WhileStatement};
+use crate::syntax::{
+    BlockStatement, ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, VariableDecl, WhileStatement,
+};
 use crate::token::Token;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum ScopeType { Function, Method, Initializer, Normal }
+enum ScopeType {
+    Function,
+    Method,
+    Initializer,
+    Normal,
+}
 
-enum ClassType { Class, Subclass, None }
+enum ClassType {
+    Class,
+    Subclass,
+    None,
+}
 
 pub struct Resolver<'a> {
     scopes: Vec<HashMap<&'a str, bool>>,
     current_scope: ScopeType,
     current_class: ClassType,
-    has_err: bool
+    has_err: bool,
 }
 
-impl <'a> Resolver<'a> {
+impl<'a> Resolver<'a> {
     pub fn new() -> Self {
         Self {
             scopes: vec![],
@@ -39,7 +50,7 @@ impl Default for Resolver<'_> {
     }
 }
 
-impl <'a> Resolver<'a> {
+impl<'a> Resolver<'a> {
     pub fn resolve_stmt(&mut self, stmt: &'a Statement) {
         match stmt {
             Statement::VarDecl(var_decl) => self.resolve_var_decl(var_decl),
@@ -50,7 +61,7 @@ impl <'a> Resolver<'a> {
             Statement::While(while_statement) => self.resolve_while_stmt(while_statement),
             Statement::FunDecl(func_decl) => self.resolve_fun_decl(func_decl),
             Statement::Return(return_statement) => self.resolve_return_stmt(return_statement),
-            Statement::ClassDecl(class_decl) => self.resolve_class_decl(class_decl)
+            Statement::ClassDecl(class_decl) => self.resolve_class_decl(class_decl),
         }
     }
 
@@ -61,7 +72,7 @@ impl <'a> Resolver<'a> {
         self.define(&stmt.name.lexeme);
 
         if let Some(super_expr @ Expr::Variable { name, .. }) = &stmt.superclass {
-            if  name.lexeme == stmt.name.lexeme {
+            if name.lexeme == stmt.name.lexeme {
                 self.has_err = true;
                 log::error_token(name, "A class can't inherit from itself.");
             }
@@ -73,14 +84,14 @@ impl <'a> Resolver<'a> {
 
         self.begin_scope();
         self.scopes.last_mut().unwrap().insert("this", true);
-        for FunctionDecl {name, params, body} in &stmt.methods {
-            let method_scope =  match &name.lexeme[..] {
+        for FunctionDecl { name, params, body } in &stmt.methods {
+            let method_scope = match &name.lexeme[..] {
                 "init" => ScopeType::Initializer,
-                _ => ScopeType::Method
+                _ => ScopeType::Method,
             };
             self.resolve_function(params, body, method_scope);
         }
-        
+
         self.end_scope();
         if stmt.superclass.is_some() {
             self.end_scope();
@@ -129,7 +140,7 @@ impl <'a> Resolver<'a> {
         self.declare(&stmt.name);
         self.define(&stmt.name.lexeme);
         self.resolve_function(&stmt.params, &stmt.body, ScopeType::Function);
-    }   
+    }
 
     fn resolve_function(&mut self, params: &'a Vec<Token>, stmts: &'a Vec<Statement>, scope_type: ScopeType) {
         let old_scope = self.current_scope;
@@ -141,7 +152,7 @@ impl <'a> Resolver<'a> {
         }
         stmts.iter().for_each(|stmt| self.resolve_stmt(stmt));
         self.end_scope();
-        self.current_scope = old_scope;        
+        self.current_scope = old_scope;
     }
 
     fn resolve_return_stmt(&mut self, stmt: &'a ReturnStatement) {
@@ -157,33 +168,31 @@ impl <'a> Resolver<'a> {
             self.resolve_expr(value);
         }
     }
-}   
+}
 
-impl <'a> Resolver<'a> {
+impl<'a> Resolver<'a> {
     pub fn resolve_expr(&mut self, expr: &'a Expr) {
         match expr {
-            Expr::Variable { name, height} => {
-                        if self.scopes.last().map(|s| s.get(&name.lexeme[..]) == Some(&false)).unwrap_or(false) {
-                            self.has_err = true;
-                            log::error_token(name, "Can't read local variable in its own initializer.");
-                        }
-                        self.annotate(&name.lexeme, height);
-                    },
+            Expr::Variable { name, height } => {
+                if self.scopes.last().map(|s| s.get(&name.lexeme[..]) == Some(&false)).unwrap_or(false) {
+                    self.has_err = true;
+                    log::error_token(name, "Can't read local variable in its own initializer.");
+                }
+                self.annotate(&name.lexeme, height);
+            },
             Expr::Asign { name, value, height } => {
-                        self.resolve_expr(value);
-                        self.annotate(&name.lexeme, height);
-                    },
+                self.resolve_expr(value);
+                self.annotate(&name.lexeme, height);
+            },
             Expr::Unary { expr, .. } | Expr::Grouping(expr) => self.resolve_expr(expr),
-            Expr::LogicalOr { left, right } 
-                    | Expr::LogicalAnd { left, right } 
-                    | Expr::Binary { left, right, .. } => {
-                        self.resolve_expr(left);
-                        self.resolve_expr(right);
-                    },
+            Expr::LogicalOr { left, right } | Expr::LogicalAnd { left, right } | Expr::Binary { left, right, .. } => {
+                self.resolve_expr(left);
+                self.resolve_expr(right);
+            },
             Expr::Call { callee, args, .. } => {
-                        self.resolve_expr(callee);
-                        args.iter().for_each(|arg| self.resolve_expr(arg));
-                    },
+                self.resolve_expr(callee);
+                args.iter().for_each(|arg| self.resolve_expr(arg));
+            },
             Expr::Get { object, .. } => self.resolve_expr(object),
             Expr::Set { object, value, .. } => {
                 self.resolve_expr(value);
@@ -197,27 +206,23 @@ impl <'a> Resolver<'a> {
                     self.annotate(&keyword.lexeme, height)
                 }
             },
-            Expr::Super {keyword, height, ..} => {
-                match self.current_class {
-                    ClassType::None => {
-                        self.has_err = true;
-                        log::error_token(&keyword, "Can't use 'super' outside of a class.");
-                    },
-                    ClassType::Class => {
-                        self.has_err = true;
-                        log::error_token(&keyword, "Can't use 'super' in a class with no superclass.");
-                    },
-                    ClassType::Subclass => self.annotate(&keyword.lexeme, height),
-                }
-            }
+            Expr::Super { keyword, height, .. } => match self.current_class {
+                ClassType::None => {
+                    self.has_err = true;
+                    log::error_token(&keyword, "Can't use 'super' outside of a class.");
+                },
+                ClassType::Class => {
+                    self.has_err = true;
+                    log::error_token(&keyword, "Can't use 'super' in a class with no superclass.");
+                },
+                ClassType::Subclass => self.annotate(&keyword.lexeme, height),
+            },
             Expr::Literal(_) => {},
         }
     }
 }
 
-
-
-impl <'a> Resolver<'a> {
+impl<'a> Resolver<'a> {
     fn begin_scope(&mut self) {
         self.scopes.push(HashMap::new());
     }
@@ -227,13 +232,13 @@ impl <'a> Resolver<'a> {
     }
 
     fn declare(&mut self, name: &'a Token) {
-        match self.scopes.last_mut()  {
-            Some(scope) => { 
+        match self.scopes.last_mut() {
+            Some(scope) => {
                 if scope.contains_key(&name.lexeme[..]) {
                     self.has_err = true;
                     log::error_token(name, "Already a variable with this name in this scope.");
-                } 
-                scope.insert(&name.lexeme, false); 
+                }
+                scope.insert(&name.lexeme, false);
             },
             None => {},
         }
@@ -246,11 +251,8 @@ impl <'a> Resolver<'a> {
     }
 
     fn annotate(&mut self, name: &str, height: &Cell<Option<usize>>) {
-        if let Some((index, _)) = self.scopes.iter()
-            .rev()
-            .enumerate()
-            .find(|(_, s)| s.contains_key(name)) {
-                height.set(Some(index));
+        if let Some((index, _)) = self.scopes.iter().rev().enumerate().find(|(_, s)| s.contains_key(name)) {
+            height.set(Some(index));
         }
     }
 }

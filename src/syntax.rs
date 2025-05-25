@@ -1,6 +1,10 @@
-use std::{cell::{Cell, RefCell}, fmt::Display, rc::Rc};
+use std::cell::{Cell, RefCell};
+use std::fmt::Display;
+use std::rc::Rc;
 
-use crate::{function::CallableVariant, instance::Instance, token::Token};
+use crate::function::CallableVariant;
+use crate::instance::Instance;
+use crate::token::Token;
 
 pub type BoxedExpr = Box<Expr>;
 pub type BoxedStatement = Box<Statement>;
@@ -22,7 +26,7 @@ pub enum Statement {
 pub struct ClassDecl {
     pub name: Token,
     pub superclass: Option<Expr>,
-    pub methods: Vec<FunctionDecl>, 
+    pub methods: Vec<FunctionDecl>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,12 +48,10 @@ pub struct PrintStatement {
     pub expr: Expr,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct BlockStatement {
     pub statements: Vec<Statement>,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct IfStatemnet {
@@ -63,7 +65,6 @@ pub struct ReturnStatement {
     pub return_token: Token,
     pub value: Option<Expr>,
 }
-
 
 #[derive(Debug, Clone)]
 pub struct WhileStatement {
@@ -98,7 +99,7 @@ pub enum Expr {
         name: Token,
         height: Cell<Option<usize>>,
     },
-    LogicalOr{
+    LogicalOr {
         left: BoxedExpr,
         right: BoxedExpr,
     },
@@ -128,7 +129,7 @@ pub enum Expr {
         keyword: Token,
         method: Token,
         height: Cell<Option<usize>>,
-    }
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
@@ -187,16 +188,16 @@ impl Expr {
     }
 
     pub fn or(left: Expr, right: Expr) -> Self {
-        Self::LogicalOr { 
+        Self::LogicalOr {
             left: BoxedExpr::new(left),
-            right: BoxedExpr::new(right), 
+            right: BoxedExpr::new(right),
         }
     }
 
     pub fn and(left: Expr, right: Expr) -> Self {
-        Self::LogicalAnd { 
+        Self::LogicalAnd {
             left: BoxedExpr::new(left),
-            right: BoxedExpr::new(right), 
+            right: BoxedExpr::new(right),
         }
     }
 
@@ -224,33 +225,50 @@ impl Expr {
     }
 
     pub fn this(keyword: Token) -> Self {
-        Self::This { 
-            keyword: keyword,
-            height: Cell::new(None)
+        Self::This {
+            keyword,
+            height: Cell::new(None),
         }
     }
 
     pub fn super_(keyword: Token, method: Token) -> Self {
-        Self::Super { keyword, method, height: Cell::new(None) }
+        Self::Super {
+            keyword,
+            method,
+            height: Cell::new(None),
+        }
     }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Expr::Asign { name: Token { lexeme, .. }, value, .. } => write!(f, "(= {lexeme} {value})"),
-            Expr::Binary { left, operator: Token { lexeme, .. }, right} => write!(f, "({lexeme} {left} {right})"),
-            Expr::Unary { operator: Token { lexeme, .. }, expr} => write!(f, "({lexeme} {expr})"),
+            Expr::Asign {
+                name: Token { lexeme, .. },
+                value,
+                ..
+            } => write!(f, "(= {lexeme} {value})"),
+            Expr::Binary {
+                left,
+                operator: Token { lexeme, .. },
+                right,
+            } => write!(f, "({lexeme} {left} {right})"),
+            Expr::Unary {
+                operator: Token { lexeme, .. },
+                expr,
+            } => write!(f, "({lexeme} {expr})"),
             Expr::Grouping(expr) => write!(f, "(group {expr})"),
             Expr::Literal(Value::Bool(b)) => write!(f, "{b}"),
             Expr::Literal(Value::String(s)) => write!(f, "{s}"),
             Expr::Literal(Value::Nil) => write!(f, "nil"),
             Expr::Literal(Value::Number(n)) => write!(f, "{n:?}"),
-            Expr::Variable { name: Token { lexeme, .. }, .. } => write!(f, "{lexeme}"),
+            Expr::Variable {
+                name: Token { lexeme, .. }, ..
+            } => write!(f, "{lexeme}"),
             Expr::LogicalOr { left, right } => write!(f, "(or {left} {right})"),
             Expr::Literal(value) => write!(f, "{value}"),
             Expr::LogicalAnd { left, right } => write!(f, "(and {left} {right})"),
-            Expr::Call { callee, args, ..  } => {
+            Expr::Call { callee, args, .. } => {
                 write!(f, "(call {callee} ")?;
                 if !args.is_empty() {
                     write!(f, "{}", args[0])?;
@@ -259,11 +277,20 @@ impl Display for Expr {
                     }
                 }
                 write!(f, ")")
-            }
-            Expr::Get { object, name: Token { lexeme, ..} } => write!(f, "(get {object} {lexeme})"),
-            Expr::Set { object, name: Token { lexeme, ..}, value } => write!(f, "(set {object} {lexeme} {value})"),
+            },
+            Expr::Get {
+                object,
+                name: Token { lexeme, .. },
+            } => write!(f, "(get {object} {lexeme})"),
+            Expr::Set {
+                object,
+                name: Token { lexeme, .. },
+                value,
+            } => write!(f, "(set {object} {lexeme} {value})"),
             Expr::This { .. } => write!(f, "this"),
-            Expr::Super { method: Token { lexeme, .. }, .. } => write!(f, "(super {lexeme})")
+            Expr::Super {
+                method: Token { lexeme, .. }, ..
+            } => write!(f, "(super {lexeme})"),
         }
     }
 }

@@ -1,0 +1,12 @@
+max_width = 160
+indent_style = "Block"
+use_field_init_shorthand = true
+use_try_shorthand = true
+struct_lit_single_line = true
+match_block_trailing_comma = true
+imports_granularity = "Module"
+reorder_imports = true
+reorder_impl_items = true
+reorder_modules = true
+remove_nested_parens = true
+group_imports = "StdExternalCrate"

@@ -1,6 +1,11 @@
-use std::{collections::HashMap, fmt::Display, rc::Rc};
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::rc::Rc;
 
-use crate::{function::{Callable, Function}, instance::Instance, interpreter::{Interpreter, RuntimeError}, syntax::Value};
+use crate::function::{Callable, Function};
+use crate::instance::Instance;
+use crate::interpreter::{Interpreter, RuntimeError};
+use crate::syntax::Value;
 
 #[derive(Debug, Clone)]
 pub struct Class {
@@ -25,15 +30,14 @@ impl Callable for Class {
     }
 
     fn arity(&self) -> usize {
-        self.method("init")
-            .map(|init| init.arity())
-            .unwrap_or(0)
+        self.method("init").map(|init| init.arity()).unwrap_or(0)
     }
 }
 
 impl Class {
     pub fn method(&self, name: &str) -> Option<Function> {
-        self.methods.get(name)
+        self.methods
+            .get(name)
             .cloned()
             .or_else(|| self.superclass.as_ref().and_then(|superclass| superclass.method(name)))
     }
