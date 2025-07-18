@@ -2,7 +2,8 @@ use std::cell::{Cell, RefCell};
 use std::fmt::Display;
 use std::rc::Rc;
 
-use crate::function::CallableVariant;
+use crate::class::Class;
+use crate::function::{Function, NativeFunction};
 use crate::instance::Instance;
 use crate::token::Token;
 
@@ -94,7 +95,7 @@ pub enum Expr {
         expr: BoxedExpr,
     },
     Grouping(BoxedExpr),
-    Literal(Value),
+    Literal(Literal),
     Variable {
         name: Token,
         height: Cell<Option<usize>>,
@@ -133,24 +134,59 @@ pub enum Expr {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum Value {
+pub enum Value<'a> {
     Number(f64),
     String(String),
-    Callable(CallableVariant),
-    Instance(Rc<RefCell<Instance>>),
+    Class(Rc<Class<'a>>),
+    Function(Rc<Function<'a>>),
+    NativeFunction(Rc<NativeFunction>),
+    Instance(Rc<RefCell<Instance<'a>>>),
     Bool(bool),
     Nil,
 }
 
-impl Display for Value {
+impl From<&Literal> for Value<'_> {
+    fn from(value: &Literal) -> Self {
+        match value {
+            Literal::Number(n) => Value::Number(*n),
+            Literal::String(_) => Value::String(value.to_string()),
+            Literal::Bool(_) => Value::Bool(value.to_string().parse().unwrap()),
+            Literal::Nil => Value::Nil,
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum Literal {
+    Number(f64),
+    String(String),
+    Bool(bool),
+    Nil,
+}
+
+impl Display for Literal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Literal::Number(n) => write!(f, "{n}"),
+            Literal::String(s) => write!(f, "{s}"),
+            Literal::Bool(b) => write!(f, "{b}"),
+            Literal::Nil => write!(f, "nil"),
+        }
+    }
+}
+
+impl Display for Value<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Number(n) => write!(f, "{n}"),
             Value::String(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Nil => write!(f, "nil"),
-            Value::Callable(callable) => write!(f, "{callable}"),
+            Value::Class(class) => write!(f, "{class}"),
             Value::Instance(instance) => write!(f, "{}", instance.borrow()),
+            Value::Function(function) => write!(f, "{function}"),
+            Value::NativeFunction(native_function) => write!(f, "{native_function}"),
         }
     }
 }
@@ -231,6 +267,10 @@ impl Expr {
         }
     }
 
+    pub fn literal(literal: Literal) -> Self {
+        Self::Literal(literal)
+    }
+
     pub fn super_(keyword: Token, method: Token) -> Self {
         Self::Super {
             keyword,
@@ -258,15 +298,14 @@ impl Display for Expr {
                 expr,
             } => write!(f, "({lexeme} {expr})"),
             Expr::Grouping(expr) => write!(f, "(group {expr})"),
-            Expr::Literal(Value::Bool(b)) => write!(f, "{b}"),
-            Expr::Literal(Value::String(s)) => write!(f, "{s}"),
-            Expr::Literal(Value::Nil) => write!(f, "nil"),
-            Expr::Literal(Value::Number(n)) => write!(f, "{n:?}"),
+            Expr::Literal(Literal::Bool(b)) => write!(f, "{b}"),
+            Expr::Literal(Literal::String(s)) => write!(f, "{s}"),
+            Expr::Literal(Literal::Nil) => write!(f, "nil"),
+            Expr::Literal(Literal::Number(n)) => write!(f, "{n:?}"),
             Expr::Variable {
                 name: Token { lexeme, .. }, ..
             } => write!(f, "{lexeme}"),
             Expr::LogicalOr { left, right } => write!(f, "(or {left} {right})"),
-            Expr::Literal(value) => write!(f, "{value}"),
             Expr::LogicalAnd { left, right } => write!(f, "(and {left} {right})"),
             Expr::Call { callee, args, .. } => {
                 write!(f, "(call {callee} ")?;

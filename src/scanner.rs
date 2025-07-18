@@ -39,6 +39,14 @@ impl Scanner {
     }
 }
 
+impl Iterator for Scanner {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.next_token())
+    }
+}
+
 impl Scanner {
     pub fn scan_all(&mut self) -> Vec<Token> {
         let mut tokens = vec![];

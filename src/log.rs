@@ -1,5 +1,5 @@
 use crate::interpreter::RuntimeError;
-use crate::token::{Literal, Token, TokenType};
+use crate::token::{TokenLiteral, Token, TokenType};
 
 pub fn error_unkown_symbol(line: u64, s: &str) {
     eprintln!("[line {line}] Error: Unexpected character: {s}");
@@ -26,7 +26,7 @@ pub fn token(token: &Token) {
 }
 
 pub fn token_value(token: &Token) -> String {
-    use Literal::*;
+    use TokenLiteral::*;
     match &token.literal {
         String(s) => s.clone(),
         Number(n) => format!("{n:?}"),

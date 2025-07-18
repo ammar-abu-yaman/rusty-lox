@@ -6,11 +6,8 @@ use thiserror::Error;
 use crate::function::FunctionType;
 use crate::log;
 use crate::scanner::Scanner;
-use crate::syntax::{
-    BlockStatement, BoxedStatement, ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value,
-    VariableDecl, WhileStatement,
-};
-use crate::token::{Literal, Token, TokenType};
+use crate::syntax::*;
+use crate::token::{TokenLiteral, Token, TokenType};
 
 pub trait Parser {
     fn parse(&mut self, scanner: &mut Scanner) -> Option<Vec<Statement>>;
@@ -264,7 +261,7 @@ impl RecursiveDecendantParser {
                 body: BoxedStatement::new(body),
             }),
             None => Statement::While(WhileStatement {
-                condition: Expr::Literal(Value::Bool(true)),
+                condition: Expr::literal(Literal::Bool(true)),
                 body: BoxedStatement::new(body),
             }),
         };
@@ -438,19 +435,19 @@ impl RecursiveDecendantParser {
     fn primary(&mut self) -> Result<Expr, ParseError> {
         use TokenType::*;
         match self.advance() {
-            Token { token_type: Nil, .. } => Ok(Expr::Literal(Value::Nil)),
-            Token { token_type: True, .. } => Ok(Expr::Literal(Value::Bool(true))),
-            Token { token_type: False, .. } => Ok(Expr::Literal(Value::Bool(false))),
+            Token { token_type: Nil, .. } => Ok(Expr::literal(Literal::Nil)),
+            Token { token_type: True, .. } => Ok(Expr::literal(Literal::Bool(true))),
+            Token { token_type: False, .. } => Ok(Expr::literal(Literal::Bool(false))),
             Token {
                 token_type: Number,
-                literal: Literal::Number(n),
+                literal: TokenLiteral::Number(n),
                 ..
-            } => Ok(Expr::Literal(Value::Number(n))),
+            } => Ok(Expr::literal(Literal::Number(n))),
             Token {
                 token_type: String,
-                literal: Literal::String(s),
+                literal: TokenLiteral::String(s),
                 ..
-            } => Ok(Expr::Literal(Value::String(s))),
+            } => Ok(Expr::literal(Literal::String(s))),
             Token { token_type: LeftParen, .. } => {
                 let expr = self.expression()?;
                 self.consume(RightParen, "Expect ')' after expression.")?;

@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use std::mem;
 
 use crate::log;
-use crate::syntax::{
-    BlockStatement, ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, VariableDecl, WhileStatement,
-};
+use crate::syntax::*;
 use crate::token::Token;
 
 #[derive(Clone, Copy, PartialEq, Eq)]

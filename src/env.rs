@@ -6,16 +6,16 @@ use super::interpreter::RuntimeError;
 use crate::syntax::Value;
 use crate::token::Token;
 
-pub type BoxedEnvironment = Rc<RefCell<Environment>>;
-pub type ValueMap = HashMap<String, Value>;
+pub type BoxedEnvironment<'a> = Rc<RefCell<Environment<'a>>>;
+pub type ValueMap<'a> = HashMap<String, Value<'a>>;
 
 #[derive(Debug, Clone)]
-pub struct Environment {
-    values: ValueMap,
-    pub enclosing: Option<BoxedEnvironment>,
+pub struct Environment<'a> {
+    values: ValueMap<'a>,
+    pub enclosing: Option<BoxedEnvironment<'a>>,
 }
 
-impl Environment {
+impl <'a> Environment<'a> {
     pub fn new() -> Self {
         Self {
             values: ValueMap::new(),
@@ -23,30 +23,30 @@ impl Environment {
         }
     }
 
-    pub fn boxed() -> BoxedEnvironment {
+    pub fn boxed() -> BoxedEnvironment<'a> {
         BoxedEnvironment::new(RefCell::new(Self::new()))
     }
 
-    pub fn boxed_with_enclosing(enclosing: &BoxedEnvironment) -> BoxedEnvironment {
+    pub fn boxed_with_enclosing(enclosing: &BoxedEnvironment<'a>) -> BoxedEnvironment<'a> {
         BoxedEnvironment::new(RefCell::new(Self {
             values: ValueMap::new(),
-            enclosing: Some(BoxedEnvironment::clone(enclosing)),
+            enclosing: Some(enclosing.clone()),
         }))
     }
 }
 
-impl Default for Environment {
+impl Default for Environment<'_> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Environment {
-    pub fn enclosing(&self) -> Option<BoxedEnvironment> {
+impl <'a> Environment<'a> {
+    pub fn enclosing(&self) -> Option<BoxedEnvironment<'a>> {
         self.enclosing.clone()
     }
 
-    pub fn get(&self, name: &str) -> Option<Value> {
+    pub fn get(&self, name: &str) -> Option<Value<'a>> {
         match self.values.get(name) {
             Some(value) => Some(value.clone()),
             None => match &self.enclosing {
@@ -56,18 +56,18 @@ impl Environment {
         }
     }
 
-    pub fn get_at(&self, name: &str, height: usize) -> Option<Value> {
+    pub fn get_at(&self, name: &str, height: usize) -> Option<Value<'a>> {
         match height {
             0 => self.values.get(name).cloned(),
             h => self.enclosing.as_ref().and_then(|e| e.borrow().get_at(name, h - 1).clone()),
         }
     }
 
-    pub fn define(&mut self, name: impl Into<String>, value: Value) {
+    pub fn define(&mut self, name: impl Into<String>, value: Value<'a>) {
         self.values.insert(name.into(), value);
     }
 
-    pub fn assign(&mut self, name: Token, value: Value) -> Result<(), RuntimeError> {
+    pub fn assign(&mut self, name: Token, value: Value<'a>) -> Result<(), RuntimeError<'a>> {
         match self.values.get_mut(&name.lexeme) {
             Some(existing_value) => {
                 *existing_value = value;
@@ -80,7 +80,7 @@ impl Environment {
         }
     }
 
-    pub fn assign_at(&mut self, name: Token, value: Value, height: usize) {
+    pub fn assign_at(&mut self, name: Token, value: Value<'a>, height: usize) {
         match height {
             0 => {
                 self.values.insert(name.lexeme.clone(), value);

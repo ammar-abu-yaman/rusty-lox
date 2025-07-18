@@ -116,8 +116,8 @@ fn run(filename: &str) -> Result<(), io::Error> {
         exit(65);
     }
 
-    for stmt in statements {
-        if let Err(e) = interpreter.interpret(&stmt) {
+    for stmt in &statements {
+        if let Err(e) = interpreter.interpret(stmt) {
             log::error_runtime(&e);
             exit(70);
         }

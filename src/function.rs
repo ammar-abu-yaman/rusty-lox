@@ -3,10 +3,9 @@ use std::fmt::{Debug, Display};
 use std::rc::Rc;
 use std::time::SystemTime;
 
-use crate::class::Class;
 use crate::instance::Instance;
 use crate::interpreter::{BoxedEnvironment, Environment, Interpreter, RuntimeError};
-use crate::syntax::{BlockStatement, FunctionDecl, Statement, Value};
+use crate::syntax::{FunctionDecl, Statement, Value};
 use crate::token::Token;
 
 pub enum FunctionType {
@@ -23,69 +22,29 @@ impl Display for FunctionType {
     }
 }
 
-pub trait Callable {
-    fn call(&self, interpreter: &mut impl Interpreter, arguments: Vec<Value>) -> anyhow::Result<Value, RuntimeError>;
-    fn arity(&self) -> usize;
-}
-
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum CallableVariant {
-    Native(NativeFunction),
-    Defined(Function),
-    Class(Class),
-}
-
-impl Callable for CallableVariant {
-    fn call(&self, interpreter: &mut impl Interpreter, args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
-        match self {
-            CallableVariant::Native(native) => native.call(interpreter, args),
-            CallableVariant::Defined(function) => function.call(interpreter, args),
-            CallableVariant::Class(class) => class.call(interpreter, args),
-        }
-    }
-
-    fn arity(&self) -> usize {
-        match self {
-            CallableVariant::Native(native) => native.arity(),
-            CallableVariant::Defined(function) => function.arity(),
-            CallableVariant::Class(class) => class.arity(),
-        }
-    }
-}
-
-impl Display for CallableVariant {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CallableVariant::Native(native) => write!(f, "{native}"),
-            CallableVariant::Defined(function) => write!(f, "{function}"),
-            CallableVariant::Class(class) => write!(f, "{class}"),
-        }
-    }
-}
-
 #[derive(Clone)]
-pub struct Function {
+pub struct Function<'a> {
     name: Token,
     params: Vec<Token>,
-    body: Vec<Statement>,
-    closure: BoxedEnvironment,
+    body: &'a [Statement],
+    closure: BoxedEnvironment<'a>,
     is_init: bool,
 }
 
-impl Function {
-    pub fn new(decl: &FunctionDecl, env: BoxedEnvironment, is_init: bool) -> Self {
+impl <'a> Function<'a> {
+    pub fn new(decl: &'a FunctionDecl, env: BoxedEnvironment<'a>, is_init: bool) -> Self {
         Self {
             name: decl.name.clone(),
             params: decl.params.clone(),
-            body: decl.body.clone(),
+            body: &decl.body,
             closure: env,
             is_init,
         }
     }
 }
 
-impl Function {
-    pub fn bind(&self, instance: &Rc<RefCell<Instance>>) -> Self {
+impl <'a> Function<'a> {
+    pub fn bind(&self, instance: &Rc<RefCell<Instance<'a>>>) -> Self {
         let binded_env = Environment::boxed_with_enclosing(&self.closure);
         binded_env.borrow_mut().define("this", Value::Instance(Rc::clone(instance)));
         Self {
@@ -98,20 +57,20 @@ impl Function {
     }
 }
 
-impl Debug for Function {
+impl <'a> Debug for Function<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<fn {}>", self.name.lexeme)
     }
 }
 
-impl Callable for Function {
-    fn call(&self, interpreter: &mut impl Interpreter, args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
+impl <'a> Function<'a> {
+    pub fn call(&self, interpreter: &mut impl Interpreter<'a>, args: Vec<Value<'a>>) -> anyhow::Result<Value<'a>, RuntimeError<'a>> {
         let environment = Environment::boxed_with_enclosing(&self.closure);
         let mut args = args.into_iter();
         for param in &self.params {
             environment.borrow_mut().define(param.lexeme.clone(), args.next().unwrap());
         }
-        match interpreter.interpret_block(&BlockStatement { statements: self.body.clone() }, environment) {
+        match interpreter.interpret_block(self.body, environment) {
             Ok(_) if self.is_init => Ok(self.closure.borrow().get("this").unwrap()),
             Ok(_) => Ok(Value::Nil),
             Err(RuntimeError::Return(_)) if self.is_init => Ok(self.closure.borrow().get("this").unwrap()),
@@ -120,23 +79,23 @@ impl Callable for Function {
         }
     }
 
-    fn arity(&self) -> usize {
+    pub fn arity(&self) -> usize {
         self.params.len()
     }
 }
 
-impl PartialEq for Function {
+impl <'a> PartialEq for Function<'a> {
     fn eq(&self, other: &Self) -> bool {
         self.name.lexeme == other.name.lexeme
     }
 }
-impl PartialOrd for Function {
+impl <'a> PartialOrd for Function<'a> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.name.lexeme.cmp(&other.name.lexeme))
     }
 }
 
-impl Display for Function {
+impl <'a> Display for Function<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<fn {}>", self.name.lexeme)
     }
@@ -170,12 +129,12 @@ impl PartialOrd for NativeFunction {
     }
 }
 
-impl Callable for NativeFunction {
-    fn call(&self, _interpreter: &mut impl Interpreter, args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
+impl <'a> NativeFunction {
+    pub fn call(&self, args: Vec<Value<'a>>) -> anyhow::Result<Value<'a>, RuntimeError<'a>> {
         (self.native)(args)
     }
 
-    fn arity(&self) -> usize {
+    pub fn arity(&self) -> usize {
         self.arity
     }
 }

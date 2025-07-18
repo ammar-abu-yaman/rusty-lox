@@ -1,4 +1,4 @@
-use crate::syntax::{BlockStatement, Expr, Statement, Value};
+use crate::syntax::{Expr, Statement, Value};
 use crate::token::Token;
 
 mod tree_walker;
@@ -7,21 +7,21 @@ pub use tree_walker::TreeWalk;
 
 pub use super::env::{BoxedEnvironment, Environment};
 
-pub trait Evaluator {
-    fn eval(&mut self, expr: &Expr) -> Result<Value>;
+pub trait Evaluator<'a> {
+    fn eval(&mut self, expr: &Expr) -> Result<'a, Value<'a>>;
 }
 
-pub trait Interpreter {
-    fn interpret(&mut self, ast: &Statement) -> Result<()>;
-    fn interpret_block(&mut self, block: &BlockStatement, env: BoxedEnvironment) -> Result<()>;
+pub trait Interpreter<'a> {
+    fn interpret(&mut self, ast: &'a Statement) -> Result<'a, ()>;
+    fn interpret_block(&mut self, block: &'a [Statement], env: BoxedEnvironment<'a>) -> Result<'a, ()>;
 }
 
 use thiserror::Error;
 
-pub type Result<T> = anyhow::Result<T, RuntimeError>;
+pub type Result<'a, T> = anyhow::Result<T, RuntimeError<'a>>;
 
 #[derive(Error, Debug)]
-pub enum RuntimeError {
+pub enum RuntimeError<'a> {
     #[error("{message}\n[line {}]", operator.pos.line)]
     IncompatibleOperandType { operator: Token, message: String },
     #[error("Undefined variable '{}'.\n[line {}]", token.lexeme, token.pos.line)]
@@ -37,5 +37,5 @@ pub enum RuntimeError {
     #[error("Superclass must be a class.\n[line {}]", token.pos.line)]
     SuperclassMustBeAClass { token: Token },
     #[error("")]
-    Return(Option<Value>),
+    Return(Option<Value<'a>>),
 }
