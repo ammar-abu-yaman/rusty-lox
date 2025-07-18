@@ -14,8 +14,8 @@ pub trait Parser {
     fn parse_expr(&mut self, scanner: &mut Scanner) -> Option<Expr>;
 }
 
-pub struct RecursiveDecendantParser {
-    tokens: Vec<Token>,
+pub struct RecursiveDecendantParser<'a> {
+    tokens: Vec<Token<'a>>,
     current: usize,
     has_error: bool,
 }
@@ -28,7 +28,7 @@ enum ParseError {
     ExpressionError,
 }
 
-impl RecursiveDecendantParser {
+impl RecursiveDecendantParser<'_> {
     pub fn new() -> Self {
         Self {
             tokens: vec![],
@@ -38,7 +38,7 @@ impl RecursiveDecendantParser {
     }
 }
 
-impl Default for RecursiveDecendantParser {
+impl Default for RecursiveDecendantParser<'_> {
     fn default() -> Self {
         Self::new()
     }
@@ -335,7 +335,7 @@ impl RecursiveDecendantParser {
         use TokenType::*;
         let mut expr = self.comparision()?;
         while let Token {
-            token_type: Equal | NotEqual, ..
+            token_type: Equal | NotEqual, .. 
         } = self.peek()
         {
             let opr = self.advance();

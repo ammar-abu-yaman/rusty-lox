@@ -23,16 +23,16 @@ impl Display for FunctionType {
 }
 
 #[derive(Clone)]
-pub struct Function<'a> {
-    name: Token,
-    params: Vec<Token>,
-    body: &'a [Statement],
+pub struct Function<'a, 't> {
+    name: Token<'t>,
+    params: Vec<Token<'t>>,
+    body: &'a [Statement<'t>],
     closure: BoxedEnvironment<'a>,
     is_init: bool,
 }
 
-impl <'a> Function<'a> {
-    pub fn new(decl: &'a FunctionDecl, env: BoxedEnvironment<'a>, is_init: bool) -> Self {
+impl <'a, 't> Function<'a, 't> {
+    pub fn new(decl: &'a FunctionDecl<'t>, env: BoxedEnvironment<'a>, is_init: bool) -> Self {
         Self {
             name: decl.name.clone(),
             params: decl.params.clone(),
@@ -43,7 +43,7 @@ impl <'a> Function<'a> {
     }
 }
 
-impl <'a> Function<'a> {
+impl <'a, 't> Function<'a, 't> {
     pub fn bind(&self, instance: &Rc<RefCell<Instance<'a>>>) -> Self {
         let binded_env = Environment::boxed_with_enclosing(&self.closure);
         binded_env.borrow_mut().define("this", Value::Instance(Rc::clone(instance)));
@@ -57,14 +57,14 @@ impl <'a> Function<'a> {
     }
 }
 
-impl <'a> Debug for Function<'a> {
+impl Debug for Function<'_, '_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<fn {}>", self.name.lexeme)
     }
 }
 
-impl <'a> Function<'a> {
-    pub fn call(&self, interpreter: &mut impl Interpreter<'a>, args: Vec<Value<'a>>) -> anyhow::Result<Value<'a>, RuntimeError<'a>> {
+impl <'a, 't> Function<'a, 't> {
+    pub fn call(&self, interpreter: &mut impl Interpreter<'a>, args: Vec<Value<'a, 't>>) -> anyhow::Result<Value<'a, 't>, RuntimeError<'a>> {
         let environment = Environment::boxed_with_enclosing(&self.closure);
         let mut args = args.into_iter();
         for param in &self.params {
@@ -84,28 +84,28 @@ impl <'a> Function<'a> {
     }
 }
 
-impl <'a> PartialEq for Function<'a> {
+impl PartialEq for Function<'_, '_> {
     fn eq(&self, other: &Self) -> bool {
         self.name.lexeme == other.name.lexeme
     }
 }
-impl <'a> PartialOrd for Function<'a> {
+impl PartialOrd for Function<'_, '_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.name.lexeme.cmp(&other.name.lexeme))
     }
 }
 
-impl <'a> Display for Function<'a> {
+impl Display for Function<'_, '_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<fn {}>", self.name.lexeme)
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct NativeFunction {
+pub struct NativeFunction<'a, 't> {
     pub name: &'static str,
     pub arity: usize,
-    native: fn(Vec<Value>) -> anyhow::Result<Value, RuntimeError>,
+    native: fn(Vec<Value<'a, 't>>) -> anyhow::Result<Value<'a, 't, RuntimeError>,
 }
 
 impl NativeFunction {

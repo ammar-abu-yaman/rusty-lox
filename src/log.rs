@@ -28,7 +28,7 @@ pub fn token(token: &Token) {
 pub fn token_value(token: &Token) -> String {
     use TokenLiteral::*;
     match &token.literal {
-        String(s) => s.clone(),
+        String(s) => s.to_string(),
         Number(n) => format!("{n:?}"),
         NoValue => "null".to_string(),
     }

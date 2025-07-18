@@ -7,35 +7,35 @@ pub use tree_walker::TreeWalk;
 
 pub use super::env::{BoxedEnvironment, Environment};
 
-pub trait Evaluator<'a> {
-    fn eval(&mut self, expr: &Expr) -> Result<'a, Value<'a>>;
+pub trait Evaluator<'a, 't> {
+    fn eval(&mut self, expr: &Expr) -> Result<'a, 't, Value<'a, 't>>;
 }
 
-pub trait Interpreter<'a> {
-    fn interpret(&mut self, ast: &'a Statement) -> Result<'a, ()>;
-    fn interpret_block(&mut self, block: &'a [Statement], env: BoxedEnvironment<'a>) -> Result<'a, ()>;
+pub trait Interpreter<'a, 't> {
+    fn interpret(&mut self, ast: &'a Statement<'t>) -> Result<'a, 't, ()>;
+    fn interpret_block(&mut self, block: &'a [Statement<'t>], env: BoxedEnvironment<'a>) -> Result<'a ,'t, ()>;
 }
 
 use thiserror::Error;
 
-pub type Result<'a, T> = anyhow::Result<T, RuntimeError<'a>>;
+pub type Result<'a, 't, T> = anyhow::Result<T, RuntimeError<'a, 't>>;
 
 #[derive(Error, Debug)]
-pub enum RuntimeError<'a> {
+pub enum RuntimeError<'a, 't> {
     #[error("{message}\n[line {}]", operator.pos.line)]
-    IncompatibleOperandType { operator: Token, message: String },
+    IncompatibleOperandType { operator: Token<'t>, message: String },
     #[error("Undefined variable '{}'.\n[line {}]", token.lexeme, token.pos.line)]
-    UndefinedVariable { token: Token },
+    UndefinedVariable { token: Token<'t> },
     #[error("Can only call functions and classes.\n[line {}]", token.pos.line)]
-    NotValidCallable { token: Token },
+    NotValidCallable { token: Token<'t> },
     #[error("Expected {expected} arguments but got {actual}.\n[line {}]", token.pos.line)]
-    InvalidArgumentCount { token: Token, expected: usize, actual: usize },
+    InvalidArgumentCount { token: Token<'t>, expected: usize, actual: usize },
     #[error("Only instances have properties.\n[line {}]", token.pos.line)]
-    NotAnInstance { token: Token },
+    NotAnInstance { token: Token<'t> },
     #[error("Undefined property '{}'.\n[line {}]", token.lexeme, token.pos.line)]
-    UndefinedProperty { token: Token },
+    UndefinedProperty { token: Token<'t> },
     #[error("Superclass must be a class.\n[line {}]", token.pos.line)]
-    SuperclassMustBeAClass { token: Token },
+    SuperclassMustBeAClass { token: Token<'t> },
     #[error("")]
-    Return(Option<Value<'a>>),
+    Return(Option<Value<'a, 't>>),
 }

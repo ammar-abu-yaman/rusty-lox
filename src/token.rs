@@ -1,38 +1,35 @@
 #[derive(Debug, Clone)]
-pub struct Token {
+pub struct Token<'a> {
     pub token_type: TokenType,
-    pub lexeme: String,
-    pub literal: TokenLiteral,
+    pub lexeme: &'a str,
+    pub literal: TokenLiteral<'a>,
     pub pos: TokenPosition,
 }
 
-impl Token {
-    pub fn new(token_type: TokenType, lexeme: impl Into<String>, literal: TokenLiteral, line: u64, offset: u64) -> Self {
+impl <'a> Token<'a> {
+    pub fn new(token_type: TokenType, lexeme: &'a str, literal: TokenLiteral<'a>, line: u64, offset: u64) -> Self {
         Self {
             token_type,
-            lexeme: lexeme.into(),
+            lexeme: lexeme,
             literal,
             pos: TokenPosition { line, offset },
         }
     }
 
-    pub fn symbol(token_type: TokenType, lexeme: impl Into<String>, line: u64, offset: u64) -> Self {
+    pub fn symbol(token_type: TokenType, lexeme: &'a str, line: u64, offset: u64) -> Self {
         Self::new(token_type, lexeme.into(), TokenLiteral::NoValue, line, offset)
     }
 
-    pub fn textual(value: impl Into<String>, line: u64, offset: u64) -> Self {
-        let value = value.into();
+    pub fn textual(value: &'a str, line: u64, offset: u64) -> Self {
         Self::new(identifier_type(&value), value, TokenLiteral::NoValue, line, offset)
     }
 
-    pub fn string(value: impl Into<String>, line: u64, offset: u64) -> Self {
-        let lexeme = value.into();
-        let value = lexeme[1..lexeme.len() - 1].to_string();
-        Self::new(TokenType::String, lexeme, TokenLiteral::String(value), line, offset)
+    pub fn string(value: &'a str, line: u64, offset: u64) -> Self {
+        let value = &value[1..value.len() - 1];
+        Self::new(TokenType::String, value, TokenLiteral::String(value), line, offset)
     }
 
-    pub fn number(value: impl Into<String>, line: u64, offset: u64) -> Self {
-        let value = value.into();
+    pub fn number(value: &'a str, line: u64, offset: u64) -> Self {
         let n = value.parse().unwrap();
         Self::new(TokenType::Number, value, TokenLiteral::Number(n), line, offset)
     }
@@ -92,8 +89,8 @@ pub enum TokenType {
 }
 
 #[derive(Debug, PartialEq, Clone, PartialOrd)]
-pub enum TokenLiteral {
-    String(String),
+pub enum TokenLiteral<'a> {
+    String(&'a str),
     Number(f64),
     NoValue,
 }

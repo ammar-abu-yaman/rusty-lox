@@ -26,7 +26,7 @@ impl <'a> Instance<'a> {
 
 impl <'a> Instance<'a> {
     pub fn get(this: &Rc<RefCell<Self>>, name: &Token) -> Result<Value<'a>, RuntimeError<'a>> {
-        if let Some(field) = this.borrow().fields.get(&name.lexeme) {
+        if let Some(field) = this.borrow().fields.get(name.lexeme) {
             return Ok(field).cloned();
         }
         if let Some(method) = this.borrow().class.method(&name.lexeme) {

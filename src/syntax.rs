@@ -7,145 +7,145 @@ use crate::function::{Function, NativeFunction};
 use crate::instance::Instance;
 use crate::token::Token;
 
-pub type BoxedExpr = Box<Expr>;
-pub type BoxedStatement = Box<Statement>;
+pub type BoxedExpr<'a> = Box<Expr<'a>>;
+pub type BoxedStatement<'a> = Box<Statement<'a>>;
 
 #[derive(Debug, Clone)]
-pub enum Statement {
-    FunDecl(FunctionDecl),
-    VarDecl(VariableDecl),
-    ClassDecl(ClassDecl),
-    Print(PrintStatement),
-    Expr(ExpressionStatement),
-    Block(BlockStatement),
-    If(IfStatemnet),
-    While(WhileStatement),
-    Return(ReturnStatement),
+pub enum Statement<'a> {
+    FunDecl(FunctionDecl<'a>),
+    VarDecl(VariableDecl<'a>),
+    ClassDecl(ClassDecl<'a>),
+    Print(PrintStatement<'a>),
+    Expr(ExpressionStatement<'a>),
+    Block(BlockStatement<'a>),
+    If(IfStatemnet<'a>),
+    While(WhileStatement<'a>),
+    Return(ReturnStatement<'a>),
 }
 
 #[derive(Debug, Clone)]
-pub struct ClassDecl {
-    pub name: Token,
-    pub superclass: Option<Expr>,
-    pub methods: Vec<FunctionDecl>,
+pub struct ClassDecl<'a> {
+    pub name: Token<'a>,
+    pub superclass: Option<Expr<'a>>,
+    pub methods: Vec<FunctionDecl<'a>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct FunctionDecl {
-    pub name: Token,
-    pub params: Vec<Token>,
-    pub body: Vec<Statement>,
+pub struct FunctionDecl<'a> {
+    pub name: Token<'a>,
+    pub params: Vec<Token<'a>>,
+    pub body: Vec<Statement<'a>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct VariableDecl {
-    pub name: Token,
-    pub initializer: Option<Expr>,
+pub struct VariableDecl<'a> {
+    pub name: Token<'a>,
+    pub initializer: Option<Expr<'a>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct PrintStatement {
-    pub print_token: Token,
-    pub expr: Expr,
+pub struct PrintStatement<'a> {
+    pub print_token: Token<'a>,
+    pub expr: Expr<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub struct BlockStatement {
-    pub statements: Vec<Statement>,
+pub struct BlockStatement<'a> {
+    pub statements: Vec<Statement<'a>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct IfStatemnet {
-    pub condition: Expr,
-    pub if_branch: BoxedStatement,
-    pub else_branch: Option<BoxedStatement>,
+pub struct IfStatemnet<'a> {
+    pub condition: Expr<'a>,
+    pub if_branch: BoxedStatement<'a>,
+    pub else_branch: Option<BoxedStatement<'a>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ReturnStatement {
-    pub return_token: Token,
-    pub value: Option<Expr>,
+pub struct ReturnStatement<'a> {
+    pub return_token: Token<'a>,
+    pub value: Option<Expr<'a>>,
 }
 
 #[derive(Debug, Clone)]
-pub struct WhileStatement {
-    pub condition: Expr,
-    pub body: BoxedStatement,
+pub struct WhileStatement<'a> {
+    pub condition: Expr<'a>,
+    pub body: BoxedStatement<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ExpressionStatement {
-    pub expr: Expr,
+pub struct ExpressionStatement<'a> {
+    pub expr: Expr<'a>,
 }
 
 #[derive(Debug, Clone)]
-pub enum Expr {
+pub enum Expr<'a> {
     Asign {
-        name: Token,
+        name: Token<'a>,
         height: Cell<Option<usize>>,
-        value: BoxedExpr,
+        value: BoxedExpr<'a>,
     },
     Binary {
-        left: BoxedExpr,
-        operator: Token,
-        right: BoxedExpr,
+        left: BoxedExpr<'a>,
+        operator: Token<'a>,
+        right: BoxedExpr<'a>,
     },
     Unary {
-        operator: Token,
-        expr: BoxedExpr,
+        operator: Token<'a>,
+        expr: BoxedExpr<'a>,
     },
-    Grouping(BoxedExpr),
-    Literal(Literal),
+    Grouping(BoxedExpr<'a>),
+    Literal(Literal<'a>),
     Variable {
-        name: Token,
+        name: Token<'a>,
         height: Cell<Option<usize>>,
     },
     LogicalOr {
-        left: BoxedExpr,
-        right: BoxedExpr,
+        left: BoxedExpr<'a>,
+        right: BoxedExpr<'a>,
     },
     LogicalAnd {
-        left: BoxedExpr,
-        right: BoxedExpr,
+        left: BoxedExpr<'a>,
+        right: BoxedExpr<'a>,
     },
     Call {
-        callee: BoxedExpr,
-        paren: Token,
-        args: Vec<Expr>,
+        callee: BoxedExpr<'a>,
+        paren: Token<'a>,
+        args: Vec<Expr<'a>>,
     },
     Get {
-        object: BoxedExpr,
-        name: Token,
+        object: BoxedExpr<'a>,
+        name: Token<'a>,
     },
     Set {
-        object: BoxedExpr,
-        name: Token,
-        value: BoxedExpr,
+        object: BoxedExpr<'a>,
+        name: Token<'a>,
+        value: BoxedExpr<'a>,
     },
     This {
-        keyword: Token,
+        keyword: Token<'a>,
         height: Cell<Option<usize>>,
     },
     Super {
-        keyword: Token,
-        method: Token,
+        keyword: Token<'a>,
+        method: Token<'a>,
         height: Cell<Option<usize>>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum Value<'a> {
+pub enum Value<'a, 't> {
     Number(f64),
     String(String),
     Class(Rc<Class<'a>>),
-    Function(Rc<Function<'a>>),
-    NativeFunction(Rc<NativeFunction>),
+    Function(Rc<Function<'a, 't>>),
+    NativeFunction(Rc<NativeFunction<'t, 'a>>),
     Instance(Rc<RefCell<Instance<'a>>>),
     Bool(bool),
     Nil,
 }
 
-impl From<&Literal> for Value<'_> {
+impl <'a> From<&Literal<'a>> for Value<'_, '_> {
     fn from(value: &Literal) -> Self {
         match value {
             Literal::Number(n) => Value::Number(*n),
@@ -158,14 +158,14 @@ impl From<&Literal> for Value<'_> {
 
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum Literal {
+pub enum Literal<'a> {
     Number(f64),
-    String(String),
+    String(&'a str),
     Bool(bool),
     Nil,
 }
 
-impl Display for Literal {
+impl Display for Literal<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Literal::Number(n) => write!(f, "{n}"),
@@ -176,7 +176,7 @@ impl Display for Literal {
     }
 }
 
-impl Display for Value<'_> {
+impl Display for Value<'_, '_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Number(n) => write!(f, "{n}"),
@@ -191,19 +191,19 @@ impl Display for Value<'_> {
     }
 }
 
-impl Expr {
-    pub fn grouping(expr: Expr) -> Self {
+impl <'a> Expr<'a> {
+    pub fn grouping(expr: Expr<'a>) -> Self {
         Self::Grouping(BoxedExpr::new(expr))
     }
 
-    pub fn unary(operator: Token, expr: Expr) -> Self {
+    pub fn unary(operator: Token<'a>, expr: Expr<'a>) -> Self {
         Self::Unary {
             operator,
             expr: BoxedExpr::new(expr),
         }
     }
 
-    pub fn binary(left: Expr, operator: Token, right: Expr) -> Self {
+    pub fn binary(left: Expr<'a>, operator: Token<'a>, right: Expr<'a>) -> Self {
         Self::Binary {
             left: BoxedExpr::new(left),
             operator,
@@ -211,11 +211,11 @@ impl Expr {
         }
     }
 
-    pub fn variable(name: Token, height: Cell<Option<usize>>) -> Self {
+    pub fn variable(name: Token<'a>, height: Cell<Option<usize>>) -> Self {
         Self::Variable { name, height }
     }
 
-    pub fn assign(name: Token, value: Expr) -> Self {
+    pub fn assign(name: Token<'a>, value: Expr<'a>) -> Self {
         Self::Asign {
             name,
             value: BoxedExpr::new(value),
@@ -223,21 +223,21 @@ impl Expr {
         }
     }
 
-    pub fn or(left: Expr, right: Expr) -> Self {
+    pub fn or(left: Expr<'a>, right: Expr<'a>) -> Self {
         Self::LogicalOr {
             left: BoxedExpr::new(left),
             right: BoxedExpr::new(right),
         }
     }
 
-    pub fn and(left: Expr, right: Expr) -> Self {
+    pub fn and(left: Expr<'a>, right: Expr<'a>) -> Self {
         Self::LogicalAnd {
             left: BoxedExpr::new(left),
             right: BoxedExpr::new(right),
         }
     }
 
-    pub fn call(callee: Expr, paren: Token, args: Vec<Expr>) -> Self {
+    pub fn call(callee: Expr<'a>, paren: Token<'a>, args: Vec<Expr<'a>>) -> Self {
         Self::Call {
             callee: BoxedExpr::new(callee),
             paren,
@@ -245,14 +245,14 @@ impl Expr {
         }
     }
 
-    pub fn get(object: Expr, name: Token) -> Self {
+    pub fn get(object: Expr<'a>, name: Token<'a>) -> Self {
         Self::Get {
             object: BoxedExpr::new(object),
             name,
         }
     }
 
-    pub fn set(object: BoxedExpr, name: Token, value: Expr) -> Self {
+    pub fn set(object: BoxedExpr<'a>, name: Token<'a>, value: Expr<'a>) -> Self {
         Self::Set {
             object,
             name,
@@ -260,18 +260,18 @@ impl Expr {
         }
     }
 
-    pub fn this(keyword: Token) -> Self {
+    pub fn this(keyword: Token<'a>) -> Self {
         Self::This {
             keyword,
             height: Cell::new(None),
         }
     }
 
-    pub fn literal(literal: Literal) -> Self {
+    pub fn literal(literal: Literal<'a>) -> Self {
         Self::Literal(literal)
     }
 
-    pub fn super_(keyword: Token, method: Token) -> Self {
+    pub fn super_(keyword: Token<'a>, method: Token<'a>) -> Self {
         Self::Super {
             keyword,
             method,
@@ -280,7 +280,7 @@ impl Expr {
     }
 }
 
-impl Display for Expr {
+impl Display for Expr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Expr::Asign {
