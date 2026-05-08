@@ -9,20 +9,24 @@ use crate::interpreter::{Interpreter, RuntimeError};
 use crate::syntax::Value;
 
 #[derive(Debug, Clone)]
-pub struct Class<'a> {
-    name: String,
-    methods: HashMap<String, Rc<Function<'a>>>,
-    superclass: Option<Rc<Class<'a>>>,
+pub struct Class<'a, 't> {
+    name: &'t str,
+    methods: HashMap<&'t str, Rc<Function<'a, 't>>>,
+    superclass: Option<Rc<Class<'a, 't>>>,
 }
 
-impl <'a> Class<'a> {
-    pub fn new(name: String, methods: HashMap<String, Rc<Function<'a>>>, superclass: Option<Rc<Class<'a>>>) -> Self {
+impl<'a, 't> Class<'a, 't> {
+    pub fn new(name: &'t str, methods: HashMap<&'t str, Rc<Function<'a, 't>>>, superclass: Option<Rc<Class<'a, 't>>>) -> Self {
         Self { name, methods, superclass }
     }
 }
 
-impl <'a> Class <'a> {
-    pub fn init(class: &Rc<Class<'a>>, interpreter: &mut impl Interpreter<'a>, args: Vec<Value<'a>>) -> Result<Value<'a>, RuntimeError<'a>> {
+impl<'a, 't> Class<'a, 't> {
+    pub fn init(
+        class: &Rc<Class<'a, 't>>,
+        interpreter: &mut impl Interpreter<'a, 't>,
+        args: Vec<Value<'a, 't>>,
+    ) -> Result<Value<'a, 't>, RuntimeError<'a, 't>> {
         let instance: Rc<RefCell<Instance>> = Instance::boxed(Rc::clone(class));
         if let Some(initializer) = class.method("init") {
             initializer.bind(&instance).call(interpreter, args)?;
@@ -35,8 +39,8 @@ impl <'a> Class <'a> {
     }
 }
 
-impl <'a> Class<'a> {
-    pub fn method(&self, name: &str) -> Option<Rc<Function<'a>>> {
+impl<'a, 't> Class<'a, 't> {
+    pub fn method(&self, name: &str) -> Option<Rc<Function<'a, 't>>> {
         self.methods
             .get(name)
             .cloned()
@@ -44,19 +48,19 @@ impl <'a> Class<'a> {
     }
 }
 
-impl Display for Class<'_> {
+impl Display for Class<'_, '_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name)
     }
 }
 
-impl PartialEq for Class<'_> {
+impl PartialEq for Class<'_, '_> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
     }
 }
 
-impl PartialOrd for Class<'_> {
+impl PartialOrd for Class<'_, '_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.name.cmp(&other.name))
     }

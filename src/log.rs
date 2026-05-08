@@ -1,5 +1,5 @@
 use crate::interpreter::RuntimeError;
-use crate::token::{TokenLiteral, Token, TokenType};
+use crate::token::{Token, TokenLiteral, TokenType};
 
 pub fn error_unkown_symbol(line: u64, s: &str) {
     eprintln!("[line {line}] Error: Unexpected character: {s}");

@@ -7,22 +7,19 @@ use crate::env::{BoxedEnvironment, Environment};
 use crate::function::{Function, NativeFunction};
 use crate::instance::Instance;
 use crate::syntax::{
-    ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl,
-    WhileStatement,
+    ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement,
 };
 use crate::token::{Token, TokenType};
 
-pub struct TreeWalk<'a> {
-    globals: BoxedEnvironment<'a>,
-    environment: BoxedEnvironment<'a>,
+pub struct TreeWalk<'a, 't> {
+    globals: BoxedEnvironment<'a, 't>,
+    environment: BoxedEnvironment<'a, 't>,
 }
 
-impl TreeWalk<'_> {
+impl TreeWalk<'_, '_> {
     pub fn new() -> Self {
         let globals = Environment::boxed();
-        globals
-            .borrow_mut()
-            .define("clock", Value::NativeFunction(Rc::new(NativeFunction::clock())));
+        globals.borrow_mut().define("clock", Value::NativeFunction(Rc::new(NativeFunction::clock())));
         Self {
             environment: BoxedEnvironment::clone(&globals),
             globals,
@@ -30,31 +27,31 @@ impl TreeWalk<'_> {
     }
 }
 
-impl Default for TreeWalk<'_> {
+impl Default for TreeWalk<'_, '_> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl <'a> Evaluator<'a> for TreeWalk<'a> {
-    fn eval(&mut self, expr: &Expr) -> Result<'a, Value<'a>> {
+impl<'a, 't> Evaluator<'a, 't> for TreeWalk<'a, 't> {
+    fn eval(&mut self, expr: &Expr<'t>) -> Result<'a, 't, Value<'a, 't>> {
         self.eval_expr(expr)
     }
 }
 
-impl <'a> Interpreter<'a> for TreeWalk<'a> {
-    fn interpret(&mut self, stmt: &'a Statement) -> Result<'a, ()> {
+impl<'a, 't> Interpreter<'a, 't> for TreeWalk<'a, 't> {
+    fn interpret(&mut self, stmt: &'a Statement<'t>) -> Result<'a, 't, ()> {
         self.eval_stmt(stmt)?;
         Ok(())
     }
 
-    fn interpret_block(&mut self, block: &'a [Statement], env: BoxedEnvironment<'a>) -> Result<'a, ()> {
+    fn interpret_block(&mut self, block: &'a [Statement<'t>], env: BoxedEnvironment<'a, 't>) -> Result<'a, 't, ()> {
         self.eval_block_stmt(block, env)
     }
 }
 
-impl <'a> TreeWalk<'a> {
-    fn eval_stmt(&mut self, statement: &'a Statement) -> Result<'a, ()> {
+impl<'a, 't> TreeWalk<'a, 't> {
+    fn eval_stmt(&mut self, statement: &'a Statement<'t>) -> Result<'a, 't, ()> {
         match statement {
             Statement::VarDecl(var_decl) => self.eval_var_decl(var_decl),
             Statement::Print(print_statement) => self.eval_print_stmt(print_statement),
@@ -68,8 +65,8 @@ impl <'a> TreeWalk<'a> {
         }
     }
 
-    fn eval_class_decl(&mut self, stmt: &'a ClassDecl) -> Result<'a, ()> {
-        let name = stmt.name.lexeme.clone();
+    fn eval_class_decl(&mut self, stmt: &'a ClassDecl<'t>) -> Result<'a, 't, ()> {
+        let name = stmt.name.lexeme;
 
         let superclass = match &stmt.superclass {
             Some(expr @ Expr::Variable { name, .. }) => match self.eval_expr(expr)? {
@@ -80,20 +77,18 @@ impl <'a> TreeWalk<'a> {
             Some(_) => unreachable!(),
         };
 
-        self.environment.borrow_mut().define(name.clone(), Value::Nil);
+        self.environment.borrow_mut().define(name, Value::Nil);
 
         if let Some(superclass) = &superclass {
             self.environment = Environment::boxed_with_enclosing(&self.environment);
-            self.environment
-                .borrow_mut()
-                .define("super".to_string(), Value::Class(superclass.clone()));
+            self.environment.borrow_mut().define("super".to_string(), Value::Class(superclass.clone()));
         }
 
         let methods = stmt
             .methods
             .iter()
             .map(|decl| {
-                let method_name = decl.name.lexeme.clone();
+                let method_name = decl.name.lexeme;
                 let closure = BoxedEnvironment::clone(&self.environment);
                 let is_init = method_name == "init";
                 (method_name, Rc::new(Function::new(decl, closure, is_init)))
@@ -106,14 +101,12 @@ impl <'a> TreeWalk<'a> {
             let enclosing_env = self.environment.borrow().enclosing().unwrap();
             self.environment = enclosing_env;
         }
-        self.environment
-            .borrow_mut()
-            .assign(stmt.name.clone(), Value::Class(Rc::new(class)))?;
+        self.environment.borrow_mut().assign(stmt.name.clone(), Value::Class(Rc::new(class)))?;
         Ok(())
     }
 
-    fn eval_var_decl(&mut self, stmt: &'a VariableDecl) -> Result<'a, ()> {
-        let name = stmt.name.lexeme.clone();
+    fn eval_var_decl(&mut self, stmt: &'a VariableDecl<'t>) -> Result<'a, 't, ()> {
+        let name = stmt.name.lexeme;
         let value = match &stmt.initializer {
             Some(initializer) => self.eval_expr(initializer)?,
             None => Value::Nil,
@@ -122,19 +115,21 @@ impl <'a> TreeWalk<'a> {
         Ok(())
     }
 
-    fn eval_fun_decl(&mut self, stmt: &'a FunctionDecl) -> Result<'a, ()> {
+    fn eval_fun_decl(&mut self, stmt: &'a FunctionDecl<'t>) -> Result<'a, 't, ()> {
         let function = Function::new(stmt, BoxedEnvironment::clone(&self.environment), false);
-        self.environment.borrow_mut().define(stmt.name.lexeme.clone(), Value::Function(Rc::new(function)));
+        self.environment
+            .borrow_mut()
+            .define(stmt.name.lexeme, Value::Function(Rc::new(function)));
         Ok(())
     }
 
-    fn eval_print_stmt(&mut self, stmt: &PrintStatement) -> Result<'a, ()> {
+    fn eval_print_stmt(&mut self, stmt: &PrintStatement<'t>) -> Result<'a, 't, ()> {
         let value = self.eval_expr(&stmt.expr)?;
         println!("{}", value);
         Ok(())
     }
 
-    fn eval_return_stmt(&mut self, stmt: &ReturnStatement) -> Result<'a, ()> {
+    fn eval_return_stmt(&mut self, stmt: &ReturnStatement<'t>) -> Result<'a, 't, ()> {
         let value = match &stmt.value {
             Some(value) => self.eval_expr(value)?,
             None => Value::Nil,
@@ -142,7 +137,7 @@ impl <'a> TreeWalk<'a> {
         Err(RuntimeError::Return(Some(value)))
     }
 
-    fn eval_block_stmt(&mut self, stmts: &'a [Statement], env: BoxedEnvironment<'a>) -> Result<'a, ()> {
+    fn eval_block_stmt(&mut self, stmts: &'a [Statement<'t>], env: BoxedEnvironment<'a, 't>) -> Result<'a, 't, ()> {
         let old_env = BoxedEnvironment::clone(&self.environment);
         self.environment = env;
         for statement in stmts {
@@ -158,12 +153,12 @@ impl <'a> TreeWalk<'a> {
         Ok(())
     }
 
-    fn eval_expr_stmt(&mut self, stmt: &ExpressionStatement) -> Result<'a, ()> {
+    fn eval_expr_stmt(&mut self, stmt: &ExpressionStatement<'t>) -> Result<'a, 't, ()> {
         self.eval_expr(&stmt.expr)?;
         Ok(())
     }
 
-    fn eval_if_stmt(&mut self, stmt: &'a IfStatemnet) -> Result<'a, ()> {
+    fn eval_if_stmt(&mut self, stmt: &'a IfStatemnet<'t>) -> Result<'a, 't, ()> {
         let condition_result = self.eval_expr(&stmt.condition)?;
         if is_true(&condition_result) {
             self.eval_stmt(&stmt.if_branch)?;
@@ -173,14 +168,14 @@ impl <'a> TreeWalk<'a> {
         Ok(())
     }
 
-    fn eval_while_stmt(&mut self, stmt: &'a WhileStatement) -> Result<'a, ()> {
+    fn eval_while_stmt(&mut self, stmt: &'a WhileStatement<'t>) -> Result<'a, 't, ()> {
         while is_true(&self.eval_expr(&stmt.condition)?) {
             self.eval_stmt(&stmt.body)?;
         }
         Ok(())
     }
 
-    fn eval_expr(&mut self, expr: &Expr) -> Result<'a, Value<'a>> {
+    fn eval_expr(&mut self, expr: &Expr<'t>) -> Result<'a, 't, Value<'a, 't>> {
         match expr {
             Expr::Asign { name, value, height } => self.eval_assignment(name, value, height),
             Expr::Binary { left, operator, right } => self.eval_binary(left, operator, right),
@@ -198,7 +193,7 @@ impl <'a> TreeWalk<'a> {
         }
     }
 
-    fn eval_super(&mut self, keyword: &Token, method: &Token, height: &Cell<Option<usize>>) -> Result<'a, Value<'a>> {
+    fn eval_super(&mut self, keyword: &Token<'t>, method: &Token<'t>, height: &Cell<Option<usize>>) -> Result<'a, 't, Value<'a, 't>> {
         let Some(Value::Class(superclass)) = self.lookup_var(keyword, height.get()) else {
             panic!("Superclass not found");
         };
@@ -212,7 +207,7 @@ impl <'a> TreeWalk<'a> {
         Ok(Value::Function(Rc::new(method)))
     }
 
-    fn eval_assignment(&mut self, name: &Token, value: &Box<Expr>, height: &Cell<Option<usize>>) -> Result<'a, Value<'a>> {
+    fn eval_assignment(&mut self, name: &Token<'t>, value: &Box<Expr<'t>>, height: &Cell<Option<usize>>) -> Result<'a, 't, Value<'a, 't>> {
         let value = self.eval_expr(value)?;
         match height.get() {
             Some(h) => self.environment.borrow_mut().assign_at(name.clone(), value.clone(), h),
@@ -221,28 +216,28 @@ impl <'a> TreeWalk<'a> {
         Ok(value)
     }
 
-    fn eval_variable(&mut self, name: &Token, height: &Cell<Option<usize>>) -> Result<'a, Value<'a>> {
+    fn eval_variable(&mut self, name: &Token<'t>, height: &Cell<Option<usize>>) -> Result<'a, 't, Value<'a, 't>> {
         match self.lookup_var(name, height.get()) {
             Some(value) => Ok(value.clone()),
             None => Err(RuntimeError::UndefinedVariable { token: name.clone() }),
         }
     }
 
-    fn eval_this(&mut self, keyword: &Token, height: &Cell<Option<usize>>) -> Result<'a, Value<'a>> {
+    fn eval_this(&mut self, keyword: &Token<'t>, height: &Cell<Option<usize>>) -> Result<'a, 't, Value<'a, 't>> {
         match self.lookup_var(keyword, height.get()) {
             Some(value) => Ok(value),
             None => Err(RuntimeError::UndefinedVariable { token: keyword.clone() }),
         }
     }
 
-    fn eval_get(&mut self, object: &Expr, name: &Token) -> Result<'a, Value<'a>> {
+    fn eval_get(&mut self, object: &Expr<'t>, name: &Token<'t>) -> Result<'a, 't, Value<'a, 't>> {
         match self.eval_expr(object)? {
             Value::Instance(instance) => Instance::get(&instance, name),
             _ => Err(RuntimeError::NotAnInstance { token: name.clone() }),
         }
     }
 
-    fn eval_set(&mut self, object: &Expr, name: &Token, value: &Expr) -> Result<'a, Value<'a>> {
+    fn eval_set(&mut self, object: &Expr<'t>, name: &Token<'t>, value: &Expr<'t>) -> Result<'a, 't, Value<'a, 't>> {
         let Value::Instance(object) = self.eval_expr(object)? else {
             return Err(RuntimeError::NotAnInstance { token: name.clone() });
         };
@@ -251,7 +246,7 @@ impl <'a> TreeWalk<'a> {
         Ok(value)
     }
 
-    fn eval_or(&mut self, left: &Expr, right: &Expr) -> Result<'a, Value<'a>> {
+    fn eval_or(&mut self, left: &Expr<'t>, right: &Expr<'t>) -> Result<'a, 't, Value<'a, 't>> {
         let left_value = self.eval_expr(left)?;
         if is_true(&left_value) {
             return Ok(left_value);
@@ -260,7 +255,7 @@ impl <'a> TreeWalk<'a> {
         }
     }
 
-    fn eval_and(&mut self, left: &Expr, right: &Expr) -> Result<'a, Value<'a>> {
+    fn eval_and(&mut self, left: &Expr<'t>, right: &Expr<'t>) -> Result<'a, 't, Value<'a, 't>> {
         let left_value = self.eval_expr(left)?;
         if !is_true(&left_value) {
             return Ok(left_value);
@@ -269,8 +264,7 @@ impl <'a> TreeWalk<'a> {
         }
     }
 
-    fn eval_call(&mut self, callee: &Expr, paren: &Token, args: &[Expr]) -> Result<'a, Value<'a>> {
-
+    fn eval_call(&mut self, callee: &Expr<'t>, paren: &Token<'t>, args: &[Expr<'t>]) -> Result<'a, 't, Value<'a, 't>> {
         let callee = self.eval_expr(callee)?;
         if !matches!(callee, Value::Function(_) | Value::NativeFunction(_) | Value::Class(_)) {
             return Err(RuntimeError::NotValidCallable { token: paren.clone() });
@@ -300,7 +294,7 @@ impl <'a> TreeWalk<'a> {
         }
     }
 
-    fn eval_binary(&mut self, left: &Expr, operator: &Token, right: &Expr) -> Result<'a, Value<'a>> {
+    fn eval_binary(&mut self, left: &Expr<'t>, operator: &Token<'t>, right: &Expr<'t>) -> Result<'a, 't, Value<'a, 't>> {
         let left_value = self.eval_expr(left)?;
         let right_value = self.eval_expr(right)?;
         use TokenType::*;
@@ -336,7 +330,7 @@ impl <'a> TreeWalk<'a> {
         }
     }
 
-    fn eval_unary(&mut self, operator: &Token, expr: &Expr) -> Result<'a, Value<'a>> {
+    fn eval_unary(&mut self, operator: &Token<'t>, expr: &Expr<'t>) -> Result<'a, 't, Value<'a, 't>> {
         let value = self.eval_expr(expr)?;
         match operator.token_type {
             TokenType::Minus => match value {
@@ -352,8 +346,8 @@ impl <'a> TreeWalk<'a> {
     }
 }
 
-impl <'a> TreeWalk<'a> {
-    fn lookup_var(&self, name: &Token, height: Option<usize>) -> Option<Value<'a>> {
+impl<'a, 't> TreeWalk<'a, 't> {
+    fn lookup_var(&self, name: &Token<'t>, height: Option<usize>) -> Option<Value<'a, 't>> {
         match height {
             Some(h) => self.environment.borrow().get_at(&name.lexeme, h),
             None => self.globals.borrow().get(&name.lexeme),

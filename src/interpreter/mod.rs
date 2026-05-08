@@ -8,12 +8,12 @@ pub use tree_walker::TreeWalk;
 pub use super::env::{BoxedEnvironment, Environment};
 
 pub trait Evaluator<'a, 't> {
-    fn eval(&mut self, expr: &Expr) -> Result<'a, 't, Value<'a, 't>>;
+    fn eval(&mut self, expr: &Expr<'t>) -> Result<'a, 't, Value<'a, 't>>;
 }
 
 pub trait Interpreter<'a, 't> {
     fn interpret(&mut self, ast: &'a Statement<'t>) -> Result<'a, 't, ()>;
-    fn interpret_block(&mut self, block: &'a [Statement<'t>], env: BoxedEnvironment<'a>) -> Result<'a ,'t, ()>;
+    fn interpret_block(&mut self, block: &'a [Statement<'t>], env: BoxedEnvironment<'a, 't>) -> Result<'a, 't, ()>;
 }
 
 use thiserror::Error;

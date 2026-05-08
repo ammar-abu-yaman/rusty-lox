@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use anyhow::Result;
 use thiserror::Error;
@@ -7,17 +7,17 @@ use crate::function::FunctionType;
 use crate::log;
 use crate::scanner::Scanner;
 use crate::syntax::*;
-use crate::token::{TokenLiteral, Token, TokenType};
+use crate::token::{Token, TokenLiteral, TokenType};
 
-pub trait Parser {
-    fn parse(&mut self, scanner: &mut Scanner) -> Option<Vec<Statement>>;
-    fn parse_expr(&mut self, scanner: &mut Scanner) -> Option<Expr>;
+pub trait Parser<'t> {
+    fn parse(&self, scanner: &'t Scanner) -> Option<Vec<Statement<'t>>>;
+    fn parse_expr(&self, scanner: &'t Scanner) -> Option<Expr<'t>>;
 }
 
-pub struct RecursiveDecendantParser<'a> {
-    tokens: Vec<Token<'a>>,
-    current: usize,
-    has_error: bool,
+pub struct RecursiveDecendantParser<'t> {
+    tokens: RefCell<Vec<Token<'t>>>,
+    current: Cell<usize>,
+    has_error: Cell<bool>,
 }
 
 #[derive(Error, Debug)]
@@ -31,9 +31,9 @@ enum ParseError {
 impl RecursiveDecendantParser<'_> {
     pub fn new() -> Self {
         Self {
-            tokens: vec![],
-            current: 0,
-            has_error: false,
+            tokens: RefCell::new(vec![]),
+            current: Cell::new(0),
+            has_error: Cell::new(false),
         }
     }
 }
@@ -44,18 +44,18 @@ impl Default for RecursiveDecendantParser<'_> {
     }
 }
 
-impl Parser for RecursiveDecendantParser {
-    fn parse(&mut self, scanner: &mut Scanner) -> Option<Vec<Statement>> {
-        self.tokens = scanner.scan_all();
+impl<'t> Parser<'t> for RecursiveDecendantParser<'t> {
+    fn parse(&self, scanner: &'t Scanner) -> Option<Vec<Statement<'t>>> {
+        *self.tokens.borrow_mut() = scanner.scan_all();
         let statements = self.program();
-        if self.has_error {
+        if self.has_error.get() {
             return None;
         }
         Some(statements)
     }
 
-    fn parse_expr(&mut self, scanner: &mut Scanner) -> Option<Expr> {
-        self.tokens = scanner.scan_all();
+    fn parse_expr(&self, scanner: &'t Scanner) -> Option<Expr<'t>> {
+        *self.tokens.borrow_mut() = scanner.scan_all();
         let expr = self.expression();
         if expr.is_err() {
             return None;
@@ -64,14 +64,14 @@ impl Parser for RecursiveDecendantParser {
     }
 }
 
-impl RecursiveDecendantParser {
-    fn program(&mut self) -> Vec<Statement> {
-        let mut statements = vec![];
+impl<'t> RecursiveDecendantParser<'t> {
+    fn program(&self) -> Vec<Statement<'t>> {
+        let mut statements: Vec<Statement<'t>> = vec![];
         while self.peek().token_type != TokenType::Eof {
             match self.declaration() {
                 Ok(stmt) => statements.push(stmt),
                 Err(_) => {
-                    self.has_error = true;
+                    self.has_error.set(true);
                     self.synchronize();
                 },
             }
@@ -79,7 +79,7 @@ impl RecursiveDecendantParser {
         statements
     }
 
-    fn declaration(&mut self) -> Result<Statement, ParseError> {
+    fn declaration(&self) -> Result<Statement<'t>, ParseError> {
         use TokenType::*;
         match self.peek().token_type {
             Var => Ok(Statement::VarDecl(self.variable_declaration()?)),
@@ -89,7 +89,7 @@ impl RecursiveDecendantParser {
         }
     }
 
-    fn class_declaration(&mut self) -> Result<ClassDecl, ParseError> {
+    fn class_declaration(&self) -> Result<ClassDecl<'t>, ParseError> {
         self.consume(TokenType::Class, "Expect 'class' before class name.")?;
         let name = self.consume(TokenType::Identifier, "Expect class name.")?;
         let superclass = if self.peek().token_type == TokenType::Less {
@@ -113,7 +113,7 @@ impl RecursiveDecendantParser {
         Ok(ClassDecl { name, methods, superclass })
     }
 
-    fn variable_declaration(&mut self) -> Result<VariableDecl, ParseError> {
+    fn variable_declaration(&self) -> Result<VariableDecl<'t>, ParseError> {
         self.consume(TokenType::Var, "Expect 'var' before variable name.")?;
         let name = self.consume(TokenType::Identifier, "Expect variable name.")?;
         let initializer = match self.peek().token_type {
@@ -127,7 +127,7 @@ impl RecursiveDecendantParser {
         Ok(VariableDecl { name, initializer })
     }
 
-    fn function_declaration(&mut self, kind: FunctionType) -> Result<FunctionDecl, ParseError> {
+    fn function_declaration(&self, kind: FunctionType) -> Result<FunctionDecl<'t>, ParseError> {
         if matches!(kind, FunctionType::Function) {
             self.consume(TokenType::Fun, format!("Expect 'fun' before function name."))?;
         }
@@ -139,12 +139,12 @@ impl RecursiveDecendantParser {
         return Ok(FunctionDecl { name, params, body });
     }
 
-    fn parameters(&mut self) -> Result<Vec<Token>, ParseError> {
+    fn parameters(&self) -> Result<Vec<Token<'t>>, ParseError> {
         let mut params = vec![];
         while self.peek().token_type != TokenType::RightParen {
             if params.len() >= 255 {
-                self.has_error = true;
-                log::error_token(self.peek(), "Can't have more than 255 parameters.");
+                self.has_error.set(true);
+                log::error_token(&self.peek(), "Can't have more than 255 parameters.");
             }
             params.push(self.consume(TokenType::Identifier, "Expect parameter name.")?);
             if self.peek().token_type != TokenType::Comma {
@@ -155,7 +155,7 @@ impl RecursiveDecendantParser {
         Ok(params)
     }
 
-    fn statement(&mut self) -> Result<Statement, ParseError> {
+    fn statement(&self) -> Result<Statement<'t>, ParseError> {
         use TokenType::*;
         match self.peek().token_type {
             Print => Ok(Statement::Print(self.print_statement()?)),
@@ -168,7 +168,7 @@ impl RecursiveDecendantParser {
         }
     }
 
-    fn block_statement(&mut self, block_type: Option<FunctionType>) -> Result<BlockStatement, ParseError> {
+    fn block_statement(&self, block_type: Option<FunctionType>) -> Result<BlockStatement<'t>, ParseError> {
         let mut statements = vec![];
         self.consume(
             TokenType::LeftBrace,
@@ -185,7 +185,7 @@ impl RecursiveDecendantParser {
         Ok(BlockStatement { statements })
     }
 
-    fn if_statement(&mut self) -> Result<IfStatemnet, ParseError> {
+    fn if_statement(&self) -> Result<IfStatemnet<'t>, ParseError> {
         self.consume(TokenType::If, "Expect 'if' before condition.")?;
         self.consume(TokenType::LeftParen, "Expect '(' after 'if'.")?;
 
@@ -206,7 +206,7 @@ impl RecursiveDecendantParser {
         })
     }
 
-    fn while_statement(&mut self) -> Result<WhileStatement, ParseError> {
+    fn while_statement(&self) -> Result<WhileStatement<'t>, ParseError> {
         self.consume(TokenType::While, "Expect 'while' before condition.")?;
         self.consume(TokenType::LeftParen, "Expect '(' after 'while'.")?;
         let condition = self.expression()?;
@@ -215,7 +215,7 @@ impl RecursiveDecendantParser {
         Ok(WhileStatement { condition, body })
     }
 
-    fn return_statement(&mut self) -> Result<ReturnStatement, ParseError> {
+    fn return_statement(&self) -> Result<ReturnStatement<'t>, ParseError> {
         let return_token = self.advance();
         let value = match self.peek().token_type {
             TokenType::SemiColon => None,
@@ -225,7 +225,7 @@ impl RecursiveDecendantParser {
         Ok(ReturnStatement { return_token, value })
     }
 
-    fn desugar_for_statement(&mut self) -> Result<Statement, ParseError> {
+    fn desugar_for_statement(&self) -> Result<Statement<'t>, ParseError> {
         self.consume(TokenType::For, "Expect 'for' before body.")?;
         self.consume(TokenType::LeftParen, "Expect '(' after 'for'.")?;
 
@@ -274,24 +274,24 @@ impl RecursiveDecendantParser {
         Ok(body)
     }
 
-    fn print_statement(&mut self) -> Result<PrintStatement, ParseError> {
+    fn print_statement(&self) -> Result<PrintStatement<'t>, ParseError> {
         let print_token = self.advance();
         let expr = self.expression()?;
         self.consume(TokenType::SemiColon, "Expect ';' after value.")?;
         Ok(PrintStatement { print_token, expr })
     }
 
-    fn expression_statement(&mut self) -> Result<ExpressionStatement, ParseError> {
+    fn expression_statement(&self) -> Result<ExpressionStatement<'t>, ParseError> {
         let expr = self.expression()?;
         self.consume(TokenType::SemiColon, "Expect ';' after expression.")?;
         Ok(ExpressionStatement { expr })
     }
 
-    fn expression(&mut self) -> Result<Expr, ParseError> {
+    fn expression(&self) -> Result<Expr<'t>, ParseError> {
         self.assignment()
     }
 
-    fn assignment(&mut self) -> Result<Expr, ParseError> {
+    fn assignment(&self) -> Result<Expr<'t>, ParseError> {
         let expr = self.logical_or()?;
         if self.peek().token_type == TokenType::Asign {
             let equals = self.advance();
@@ -300,7 +300,7 @@ impl RecursiveDecendantParser {
                 Expr::Variable { name, .. } => return Ok(Expr::assign(name.clone(), value)),
                 Expr::Get { name, object, .. } => return Ok(Expr::set(object, name, value)),
                 _ => {
-                    self.has_error = true;
+                    self.has_error.set(true);
                     log::error_token(&equals, "Invalid assignment target.");
                 },
             }
@@ -308,7 +308,7 @@ impl RecursiveDecendantParser {
         Ok(expr)
     }
 
-    fn logical_or(&mut self) -> Result<Expr, ParseError> {
+    fn logical_or(&self) -> Result<Expr<'t>, ParseError> {
         let mut expr = self.logical_and()?;
         while let Token { token_type: TokenType::Or, .. } = self.peek() {
             self.advance();
@@ -318,7 +318,7 @@ impl RecursiveDecendantParser {
         Ok(expr)
     }
 
-    fn logical_and(&mut self) -> Result<Expr, ParseError> {
+    fn logical_and(&self) -> Result<Expr<'t>, ParseError> {
         let mut expr = self.equality()?;
         while let Token {
             token_type: TokenType::And, ..
@@ -331,11 +331,11 @@ impl RecursiveDecendantParser {
         Ok(expr)
     }
 
-    fn equality(&mut self) -> Result<Expr, ParseError> {
+    fn equality(&self) -> Result<Expr<'t>, ParseError> {
         use TokenType::*;
         let mut expr = self.comparision()?;
         while let Token {
-            token_type: Equal | NotEqual, .. 
+            token_type: Equal | NotEqual, ..
         } = self.peek()
         {
             let opr = self.advance();
@@ -345,7 +345,7 @@ impl RecursiveDecendantParser {
         Ok(expr)
     }
 
-    fn comparision(&mut self) -> Result<Expr, ParseError> {
+    fn comparision(&self) -> Result<Expr<'t>, ParseError> {
         use TokenType::*;
         let mut expr = self.term()?;
         while let Token {
@@ -360,7 +360,7 @@ impl RecursiveDecendantParser {
         Ok(expr)
     }
 
-    fn term(&mut self) -> Result<Expr, ParseError> {
+    fn term(&self) -> Result<Expr<'t>, ParseError> {
         use TokenType::*;
         let mut expr = self.factor()?;
         while let Token { token_type: Plus | Minus, .. } = self.peek() {
@@ -371,7 +371,7 @@ impl RecursiveDecendantParser {
         Ok(expr)
     }
 
-    fn factor(&mut self) -> Result<Expr, ParseError> {
+    fn factor(&self) -> Result<Expr<'t>, ParseError> {
         use TokenType::*;
         let mut expr = self.unary()?;
         while let Token { token_type: Div | Star, .. } = self.peek() {
@@ -382,7 +382,7 @@ impl RecursiveDecendantParser {
         Ok(expr)
     }
 
-    fn unary(&mut self) -> Result<Expr, ParseError> {
+    fn unary(&self) -> Result<Expr<'t>, ParseError> {
         use TokenType::*;
         match self.peek() {
             Token { token_type: Not | Minus, .. } => {
@@ -394,7 +394,7 @@ impl RecursiveDecendantParser {
         }
     }
 
-    fn call(&mut self) -> Result<Expr, ParseError> {
+    fn call(&self) -> Result<Expr<'t>, ParseError> {
         let mut expr = self.primary()?;
         while matches!(self.peek().token_type, TokenType::Dot | TokenType::LeftParen) {
             match self.advance().token_type {
@@ -408,8 +408,8 @@ impl RecursiveDecendantParser {
                         _ => self.arguments()?,
                     };
                     if args.len() >= 255 {
-                        self.has_error = true;
-                        log::error_token(self.peek(), "Can't have more than 255 arguments.");
+                        self.has_error.set(true);
+                        log::error_token(&self.peek(), "Can't have more than 255 arguments.");
                     }
                     let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments.")?;
                     expr = Expr::call(expr, paren, args);
@@ -421,7 +421,7 @@ impl RecursiveDecendantParser {
         Ok(expr)
     }
 
-    fn arguments(&mut self) -> Result<Vec<Expr>, ParseError> {
+    fn arguments(&self) -> Result<Vec<Expr<'t>>, ParseError> {
         let expr = self.expression()?;
         let mut args = vec![expr];
         while let TokenType::Comma = self.peek().token_type {
@@ -432,7 +432,7 @@ impl RecursiveDecendantParser {
         Ok(args)
     }
 
-    fn primary(&mut self) -> Result<Expr, ParseError> {
+    fn primary(&self) -> Result<Expr<'t>, ParseError> {
         use TokenType::*;
         match self.advance() {
             Token { token_type: Nil, .. } => Ok(Expr::literal(Literal::Nil)),
@@ -468,30 +468,34 @@ impl RecursiveDecendantParser {
     }
 }
 
-impl RecursiveDecendantParser {
-    fn peek(&self) -> &Token {
-        self.tokens.get(self.current).unwrap_or_else(|| self.tokens.last().unwrap())
+impl<'t> RecursiveDecendantParser<'t> {
+    fn peek(&self) -> Token<'t> {
+        self.tokens
+            .borrow()
+            .get(self.current.get())
+            .cloned()
+            .unwrap_or_else(|| self.tokens.borrow().last().unwrap().clone())
     }
 
-    fn advance(&mut self) -> Token {
-        let token = self.tokens.get(self.current).cloned();
+    fn advance(&self) -> Token<'t> {
+        let token = self.tokens.borrow().get(self.current.get()).copied();
         if token.is_some() {
-            self.current += 1;
+            self.current.update(|c| c + 1);
         }
-        token.unwrap_or_else(|| self.tokens.last().unwrap().clone())
+        token.unwrap_or_else(|| self.tokens.borrow().last().unwrap().clone())
     }
 
-    fn consume(&mut self, tt: TokenType, message: impl Into<String>) -> Result<Token, ParseError> {
+    fn consume(&self, tt: TokenType, message: impl Into<String>) -> Result<Token<'t>, ParseError> {
         match self.peek() {
-            Token { token_type, .. } if token_type == &tt => Ok(self.advance()),
+            Token { token_type, .. } if token_type == tt => Ok(self.advance()),
             token => {
-                log::error_token(token, &message.into());
+                log::error_token(&token, &message.into());
                 Err(ParseError::UnexpectedToken)
             },
         }
     }
 
-    fn synchronize(&mut self) {
+    fn synchronize(&self) {
         use TokenType::*;
         let mut token = self.advance();
         while token.token_type != Eof {

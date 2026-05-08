@@ -46,7 +46,7 @@ fn main() -> io::Result<()> {
 
 fn tokenize(filename: &str) -> Result<(), io::Error> {
     let file = File::open(filename)?;
-    let mut scanner = Scanner::try_from(file)?;
+    let scanner = Scanner::try_from(file)?;
     let mut tokens = vec![];
     loop {
         let token = scanner.next_token();
@@ -64,10 +64,10 @@ fn tokenize(filename: &str) -> Result<(), io::Error> {
 
 fn parse(filename: &str) -> Result<(), io::Error> {
     let file = File::open(filename)?;
-    let mut scanner = Scanner::try_from(file)?;
-    let mut parser = RecursiveDecendantParser::new();
+    let scanner = Scanner::try_from(file)?;
+    let parser = RecursiveDecendantParser::new();
 
-    let expr = parser.parse_expr(&mut scanner);
+    let expr = parser.parse_expr(&scanner);
     if scanner.has_error() || expr.is_none() {
         exit(65);
     }
@@ -78,10 +78,10 @@ fn parse(filename: &str) -> Result<(), io::Error> {
 
 fn evaluate(filename: &str) -> Result<(), io::Error> {
     let file = File::open(filename)?;
-    let mut scanner = Scanner::try_from(file)?;
-    let mut parser = RecursiveDecendantParser::new();
+    let scanner = Scanner::try_from(file)?;
+    let parser = RecursiveDecendantParser::new();
 
-    let expr = parser.parse_expr(&mut scanner);
+    let expr = parser.parse_expr(&scanner);
     if scanner.has_error() || expr.is_none() {
         exit(65);
     }
@@ -101,12 +101,12 @@ fn evaluate(filename: &str) -> Result<(), io::Error> {
 
 fn run(filename: &str) -> Result<(), io::Error> {
     let file = File::open(filename)?;
-    let mut scanner = Scanner::try_from(file)?;
-    let mut parser = RecursiveDecendantParser::new();
+    let scanner = Scanner::try_from(file)?;
+    let parser = RecursiveDecendantParser::new();
     let mut resolver = Resolver::new();
     let mut interpreter = interpreter::TreeWalk::new();
 
-    let statements = parser.parse(&mut scanner);
+    let statements = parser.parse(&scanner);
     if scanner.has_error() || statements.is_none() {
         exit(65);
     }

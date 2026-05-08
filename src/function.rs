@@ -27,12 +27,12 @@ pub struct Function<'a, 't> {
     name: Token<'t>,
     params: Vec<Token<'t>>,
     body: &'a [Statement<'t>],
-    closure: BoxedEnvironment<'a>,
+    closure: BoxedEnvironment<'a, 't>,
     is_init: bool,
 }
 
-impl <'a, 't> Function<'a, 't> {
-    pub fn new(decl: &'a FunctionDecl<'t>, env: BoxedEnvironment<'a>, is_init: bool) -> Self {
+impl<'a, 't> Function<'a, 't> {
+    pub fn new(decl: &'a FunctionDecl<'t>, env: BoxedEnvironment<'a, 't>, is_init: bool) -> Self {
         Self {
             name: decl.name.clone(),
             params: decl.params.clone(),
@@ -43,14 +43,14 @@ impl <'a, 't> Function<'a, 't> {
     }
 }
 
-impl <'a, 't> Function<'a, 't> {
-    pub fn bind(&self, instance: &Rc<RefCell<Instance<'a>>>) -> Self {
+impl<'a, 't> Function<'a, 't> {
+    pub fn bind(&self, instance: &Rc<RefCell<Instance<'a, 't>>>) -> Self {
         let binded_env = Environment::boxed_with_enclosing(&self.closure);
         binded_env.borrow_mut().define("this", Value::Instance(Rc::clone(instance)));
         Self {
             name: self.name.clone(),
             params: self.params.clone(),
-            body: self.body.clone(),
+            body: self.body,
             is_init: self.is_init,
             closure: binded_env,
         }
@@ -63,12 +63,12 @@ impl Debug for Function<'_, '_> {
     }
 }
 
-impl <'a, 't> Function<'a, 't> {
-    pub fn call(&self, interpreter: &mut impl Interpreter<'a>, args: Vec<Value<'a, 't>>) -> anyhow::Result<Value<'a, 't>, RuntimeError<'a>> {
+impl<'a, 't> Function<'a, 't> {
+    pub fn call(&self, interpreter: &mut impl Interpreter<'a, 't>, args: Vec<Value<'a, 't>>) -> anyhow::Result<Value<'a, 't>, RuntimeError<'a, 't>> {
         let environment = Environment::boxed_with_enclosing(&self.closure);
         let mut args = args.into_iter();
         for param in &self.params {
-            environment.borrow_mut().define(param.lexeme.clone(), args.next().unwrap());
+            environment.borrow_mut().define(param.lexeme, args.next().unwrap());
         }
         match interpreter.interpret_block(self.body, environment) {
             Ok(_) if self.is_init => Ok(self.closure.borrow().get("this").unwrap()),
@@ -105,11 +105,11 @@ impl Display for Function<'_, '_> {
 pub struct NativeFunction<'a, 't> {
     pub name: &'static str,
     pub arity: usize,
-    native: fn(Vec<Value<'a, 't>>) -> anyhow::Result<Value<'a, 't, RuntimeError>,
+    native: fn(Vec<Value<'a, 't>>) -> anyhow::Result<Value<'a, 't>, RuntimeError<'a, 't>>,
 }
 
-impl NativeFunction {
-    pub fn new(name: &'static str, arity: usize, native: fn(Vec<Value>) -> anyhow::Result<Value, RuntimeError>) -> Self {
+impl<'a, 't> NativeFunction<'a, 't> {
+    pub fn new(name: &'static str, arity: usize, native: fn(Vec<Value<'a, 't>>) -> anyhow::Result<Value<'a, 't>, RuntimeError<'a, 't>>) -> Self {
         Self { name, arity, native }
     }
 
@@ -118,19 +118,19 @@ impl NativeFunction {
     }
 }
 
-impl PartialEq for NativeFunction {
+impl PartialEq for NativeFunction<'_, '_> {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
     }
 }
-impl PartialOrd for NativeFunction {
+impl PartialOrd for NativeFunction<'_, '_> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.name.cmp(other.name))
     }
 }
 
-impl <'a> NativeFunction {
-    pub fn call(&self, args: Vec<Value<'a>>) -> anyhow::Result<Value<'a>, RuntimeError<'a>> {
+impl<'a, 't> NativeFunction<'a, 't> {
+    pub fn call(&self, args: Vec<Value<'a, 't>>) -> anyhow::Result<Value<'a, 't>, RuntimeError<'a, 't>> {
         (self.native)(args)
     }
 
@@ -139,13 +139,13 @@ impl <'a> NativeFunction {
     }
 }
 
-impl Display for NativeFunction {
+impl Display for NativeFunction<'_, '_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<native fn>")
     }
 }
 
-fn clock(_args: Vec<Value>) -> anyhow::Result<Value, RuntimeError> {
+fn clock<'a, 't>(_args: Vec<Value<'a, 't>>) -> anyhow::Result<Value<'a, 't>, RuntimeError<'a, 't>> {
     let millis = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs_f64();
     Ok(Value::Number(millis))
 }

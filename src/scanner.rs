@@ -40,9 +40,8 @@ impl Scanner {
     }
 }
 
-
-impl Scanner {
-    pub fn scan_all(&self) -> Vec<Token> {
+impl<'t> Scanner {
+    pub fn scan_all(&'t self) -> Vec<Token<'t>> {
         let mut tokens = vec![];
         loop {
             let token = self.next_token();
@@ -54,7 +53,7 @@ impl Scanner {
         tokens
     }
 
-    pub fn next_token(&self) -> Token {
+    pub fn next_token(&'t self) -> Token<'t> {
         loop {
             let line = self.line.get();
             let offset = self.current.get() as u64;
@@ -126,30 +125,30 @@ impl Scanner {
         Token::number(lexeme, line, offset)
     }
 
-    fn identifier(&self, line: u64, offset: u64) -> Token {
+    fn identifier(&'t self, line: u64, offset: u64) -> Token<'t> {
         loop {
             match self.peek() {
                 Some(c) if c.is_ascii_alphanumeric() || c == b'_' => self.advance(),
                 _ => break,
             };
         }
-        let lexeme = str::from_utf8(&self.source[offset as usize..self.current.get()]).unwrap();
+        let lexeme: &'t str = str::from_utf8(&self.source[offset as usize..self.current.get()]).unwrap();
         Token::textual(lexeme, line, offset)
     }
 
-    fn string(&self, line: u64, offset: u64) -> Token {
+    fn string(&'t self, line: u64, offset: u64) -> Token<'t> {
         loop {
             match self.advance() {
                 Some(b'"') => break,
                 Some(_) => continue,
                 None => {
                     log::error(self.line.get(), "Unterminated string.");
-                    self.has_error.set( true);
+                    self.has_error.set(true);
                     return Token::eof(line);
                 },
             }
         }
-        let lexeme = str::from_utf8(&self.source[offset as usize..self.current.get()]).unwrap();
+        let lexeme: &'t str = str::from_utf8(&self.source[offset as usize..self.current.get()]).unwrap();
         Token::string(lexeme, line, offset)
     }
 
@@ -178,3 +177,4 @@ impl Scanner {
         self.source.get(self.current.get() + offset as usize).copied()
     }
 }
+

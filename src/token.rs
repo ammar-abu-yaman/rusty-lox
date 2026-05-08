@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Token<'a> {
     pub token_type: TokenType,
     pub lexeme: &'a str,
@@ -6,11 +6,11 @@ pub struct Token<'a> {
     pub pos: TokenPosition,
 }
 
-impl <'a> Token<'a> {
+impl<'a> Token<'a> {
     pub fn new(token_type: TokenType, lexeme: &'a str, literal: TokenLiteral<'a>, line: u64, offset: u64) -> Self {
         Self {
             token_type,
-            lexeme: lexeme,
+            lexeme,
             literal,
             pos: TokenPosition { line, offset },
         }
@@ -21,7 +21,7 @@ impl <'a> Token<'a> {
     }
 
     pub fn textual(value: &'a str, line: u64, offset: u64) -> Self {
-        Self::new(identifier_type(&value), value, TokenLiteral::NoValue, line, offset)
+        Self::new(identifier_type(value), value, TokenLiteral::NoValue, line, offset)
     }
 
     pub fn string(value: &'a str, line: u64, offset: u64) -> Self {
@@ -39,7 +39,7 @@ impl <'a> Token<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TokenPosition {
     pub line: u64,
     pub offset: u64,
@@ -88,7 +88,7 @@ pub enum TokenType {
     Eof,
 }
 
-#[derive(Debug, PartialEq, Clone, PartialOrd)]
+#[derive(Debug, PartialEq, Clone, Copy, PartialOrd)]
 pub enum TokenLiteral<'a> {
     String(&'a str),
     Number(f64),
