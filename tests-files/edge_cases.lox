@@ -1,0 +1,27 @@
+// Truthiness
+if (0) print "0 is true"; // 0 is true
+if ("") print "empty string is true"; // empty string is true
+if (nil) print "nil is true"; else print "nil is false"; // nil is false
+
+// Deep nesting
+{
+  {
+    {
+      {
+        var deep = "very deep";
+        print deep;
+      }
+    }
+  }
+}
+
+// Empty blocks and functions
+fun empty() {}
+print empty(); // nil
+
+{
+  // nothing here
+}
+
+// Print nil
+print nil; // nil

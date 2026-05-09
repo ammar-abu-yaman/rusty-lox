@@ -1,0 +1,20 @@
+// Basic Arithmetic
+print 1 + 2 * 3; // 7
+print (1 + 2) * 3; // 9
+print 10 / 2 - 3; // 2
+print -5 + 10; // 5
+
+// Strings
+print "hello" + " " + "world"; // hello world
+
+// Logical
+print true and false; // false
+print true or false; // true
+print !true; // false
+print !!true; // true
+
+// Comparison
+print 1 < 2; // true
+print 10 >= 10; // true
+print "a" == "a"; // true
+print "a" != "b"; // true

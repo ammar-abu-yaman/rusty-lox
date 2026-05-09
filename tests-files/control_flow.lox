@@ -1,0 +1,25 @@
+// If/Else
+var condition = true;
+if (condition) {
+  print "then";
+} else {
+  print "else";
+}
+
+if (!condition) {
+  print "not seen";
+} else {
+  print "seen";
+}
+
+// While
+var i = 0;
+while (i < 3) {
+  print i;
+  i = i + 1;
+}
+
+// For loop (desugared to while)
+for (var j = 0; j < 3; j = j + 1) {
+  print j;
+}
