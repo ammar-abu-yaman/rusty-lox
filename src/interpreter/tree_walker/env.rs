@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use super::interpreter::RuntimeError;
+use super::super::RuntimeError;
 use crate::syntax::Value;
 use crate::token::Token;
 

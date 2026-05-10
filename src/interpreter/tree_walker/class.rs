@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::rc::Rc;
 
-use crate::function::Function;
-use crate::instance::Instance;
+use super::function::Function;
+use super::instance::Instance;
 use crate::interpreter::{Interpreter, RuntimeError};
 use crate::syntax::Value;
 

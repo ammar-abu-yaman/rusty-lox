@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::rc::Rc;
 
-use crate::class::Class;
+use super::class::Class;
 use crate::interpreter::RuntimeError;
 use crate::syntax::Value;
 use crate::token::Token;

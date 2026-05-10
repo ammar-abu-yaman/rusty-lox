@@ -2,9 +2,9 @@ use std::cell::{Cell, RefCell};
 use std::fmt::Display;
 use std::rc::Rc;
 
-use crate::class::Class;
-use crate::function::{Function, NativeFunction};
-use crate::instance::Instance;
+use crate::interpreter::tree_walker::class::Class;
+use crate::interpreter::tree_walker::function::{Function, NativeFunction};
+use crate::interpreter::tree_walker::instance::Instance;
 use crate::token::Token;
 
 pub type BoxedExpr<'t> = Box<Expr<'t>>;

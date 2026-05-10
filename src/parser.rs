@@ -3,7 +3,7 @@ use std::cell::{Cell, RefCell};
 use anyhow::Result;
 use thiserror::Error;
 
-use crate::function::FunctionType;
+use crate::interpreter::tree_walker::function::FunctionType;
 use crate::log;
 use crate::scanner::Scanner;
 use crate::syntax::*;

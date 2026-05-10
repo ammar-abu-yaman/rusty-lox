@@ -1,11 +1,12 @@
 use crate::syntax::{Expr, Statement, Value};
 use crate::token::Token;
 
-mod tree_walker;
+pub mod tree_walker;
+pub mod vm;
 
 pub use tree_walker::TreeWalk;
 
-pub use super::env::{BoxedEnvironment, Environment};
+pub use self::tree_walker::env::BoxedEnvironment;
 
 pub trait Evaluator<'a, 't> {
     fn eval(&mut self, expr: &Expr<'t>) -> Result<'a, 't, Value<'a, 't>>;

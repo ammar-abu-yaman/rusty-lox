@@ -3,8 +3,9 @@ use std::fmt::{Debug, Display};
 use std::rc::Rc;
 use std::time::SystemTime;
 
-use crate::instance::Instance;
-use crate::interpreter::{BoxedEnvironment, Environment, Interpreter, RuntimeError};
+use super::env::{BoxedEnvironment, Environment};
+use super::instance::Instance;
+use super::super::{Interpreter, RuntimeError};
 use crate::syntax::{FunctionDecl, Statement, Value};
 use crate::token::Token;
 

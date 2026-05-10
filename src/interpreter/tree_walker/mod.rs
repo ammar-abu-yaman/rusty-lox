@@ -1,11 +1,16 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+pub mod class;
+pub mod env;
+pub mod function;
+pub mod instance;
+
+use self::class::Class;
+use self::env::{BoxedEnvironment, Environment};
+use self::function::{Function, NativeFunction};
+use self::instance::Instance;
 use super::{Evaluator, Interpreter, Result, RuntimeError};
-use crate::class::Class;
-use crate::env::{BoxedEnvironment, Environment};
-use crate::function::{Function, NativeFunction};
-use crate::instance::Instance;
 use crate::syntax::{
     ClassDecl, Expr, ExpressionStatement, FunctionDecl, IfStatemnet, PrintStatement, ReturnStatement, Statement, Value, VariableDecl, WhileStatement,
 };

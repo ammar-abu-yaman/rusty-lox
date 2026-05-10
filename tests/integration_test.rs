@@ -29,6 +29,8 @@ fn test_lox_files() {
                 continue;
             }
 
+            println!("Running test: {}", test_name);
+
             let expected_output = fs::read_to_string(&expected_path)
                 .expect("Could not read expected file")
                 .replace("\r\n", "\n");

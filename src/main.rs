@@ -8,10 +8,6 @@ use resolver::Resolver;
 use scanner::Scanner;
 use token::TokenType;
 
-mod class;
-mod env;
-mod function;
-mod instance;
 mod interpreter;
 mod log;
 mod parser;
