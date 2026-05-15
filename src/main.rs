@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate num_derive;
+
 use std::fs::File;
 use std::io::{self, Write};
 use std::process::exit;
