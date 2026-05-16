@@ -3,23 +3,20 @@ use std::cell::Cell;
 use std::fs::File;
 use std::io::{self, Read};
 
-use crate::log;
 use crate::token::{Token, TokenType};
 
 pub struct Scanner {
     source: Vec<u8>,
     current: Cell<usize>,
     line: Cell<u64>,
-    has_error: Cell<bool>,
 }
 
 impl Scanner {
-    pub fn new(source: Vec<u8>) -> Self {
+    pub fn new(source: impl Into<Vec<u8>>) -> Self {
         Self {
-            source,
+            source: source.into(),
             current: Cell::new(0),
             line: Cell::new(1),
-            has_error: Cell::new(false),
         }
     }
 }
@@ -31,12 +28,6 @@ impl TryFrom<File> for Scanner {
         let mut source = Vec::new();
         file.read_to_end(&mut source)?;
         Ok(Scanner::new(source))
-    }
-}
-
-impl Scanner {
-    pub fn has_error(&self) -> bool {
-        return self.has_error.get();
     }
 }
 
@@ -92,9 +83,7 @@ impl<'t> Scanner {
                 'a'..='z' | 'A'..='Z' | '_' => return self.identifier(line, offset),
                 c if c.is_whitespace() => continue,
                 c => {
-                    self.has_error.set(true);
-                    log::error_unkown_symbol(self.line.get(), c.to_string().as_str());
-                    continue;
+                    return Token::error(format!("Unexpected character: {}", c as char), line, offset);
                 },
             };
             return token;
@@ -142,9 +131,7 @@ impl<'t> Scanner {
                 Some(b'"') => break,
                 Some(_) => continue,
                 None => {
-                    log::error(self.line.get(), "Unterminated string.");
-                    self.has_error.set(true);
-                    return Token::eof(line);
+                    return Token::error("Unterminated string.", line, offset);
                 },
             }
         }
@@ -177,4 +164,3 @@ impl<'t> Scanner {
         self.source.get(self.current.get() + offset as usize).copied()
     }
 }
-

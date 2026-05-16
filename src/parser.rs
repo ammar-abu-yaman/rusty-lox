@@ -478,7 +478,7 @@ impl<'t> RecursiveDecendantParser<'t> {
     }
 
     fn advance(&self) -> Token<'t> {
-        let token = self.tokens.borrow().get(self.current.get()).copied();
+        let token = self.tokens.borrow().get(self.current.get()).cloned();
         if token.is_some() {
             self.current.update(|c| c + 1);
         }

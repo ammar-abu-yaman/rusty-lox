@@ -12,6 +12,7 @@ thiserror = "1.0.38"
 num-traits = "0.2"
 num-derive = "0.4"
 arrayvec = "0.7.6"
+clap = { version = "4.6.1", features = ["derive"] }
 
 [features]
 integration-tests = []

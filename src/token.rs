@@ -1,9 +1,10 @@
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Token<'a> {
     pub token_type: TokenType,
     pub lexeme: &'a str,
     pub literal: TokenLiteral<'a>,
     pub pos: TokenPosition,
+    pub error: Option<String>,
 }
 
 impl<'a> Token<'a> {
@@ -13,6 +14,7 @@ impl<'a> Token<'a> {
             lexeme,
             literal,
             pos: TokenPosition { line, offset },
+            error: None,
         }
     }
 
@@ -36,6 +38,12 @@ impl<'a> Token<'a> {
 
     pub fn eof(line: u64) -> Self {
         Self::new(TokenType::Eof, "", TokenLiteral::NoValue, line, 0)
+    }
+
+    pub fn error(message: impl Into<String>, line: u64, offset: u64) -> Self {
+        let mut token = Self::new(TokenType::Error, "", TokenLiteral::NoValue, line, offset);
+        token.error = Some(message.into());
+        token
     }
 }
 
@@ -85,6 +93,7 @@ pub enum TokenType {
     True,
     Var,
     While,
+    Error,
     Eof,
 }
 

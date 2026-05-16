@@ -1,16 +1,12 @@
 #[macro_use]
 extern crate num_derive;
 
+use clap::Parser;
 use std::fs::File;
-use std::io::{self, Write};
+use std::io::Read;
 use std::process::exit;
 
-use interpreter::{Evaluator, Interpreter};
-use parser::{Parser, RecursiveDecendantParser};
-use resolver::Resolver;
-use scanner::Scanner;
-use token::TokenType;
-
+mod cli;
 mod interpreter;
 mod log;
 mod parser;
@@ -19,107 +15,39 @@ mod scanner;
 mod syntax;
 mod token;
 
-fn main() -> io::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 3 {
-        writeln!(io::stderr(), "Usage: {} tokenize <filename>", args[0]).unwrap();
-        return Ok(());
+use cli::Cli;
+
+use crate::interpreter::vm::VirtualMachine;
+
+fn main() {
+    let raw_args: Vec<String> = std::env::args().collect();
+    let args = Cli::parse_from(&raw_args);
+    if raw_args.len() <= 1 {
+        repl();
+    } else if let Some(filename) = &args.filename {
+        exec_file(filename);
+    } else {
+        eprintln!("Usage: clox [path]");
+        exit(64);
     }
-
-    let command = &args[1];
-    let filename = &args[2];
-
-    match command.as_str() {
-        "tokenize" => tokenize(filename)?,
-        "parse" => parse(filename)?,
-        "evaluate" => evaluate(filename)?,
-        "run" => run(filename)?,
-        _ => {
-            writeln!(io::stderr(), "Unknown command: {}", command).unwrap();
-            return Ok(());
-        },
-    }
-
-    return Ok(());
 }
 
-fn tokenize(filename: &str) -> Result<(), io::Error> {
-    let file = File::open(filename)?;
-    let scanner = Scanner::try_from(file)?;
-    let mut tokens = vec![];
+fn repl() {
+    let mut vm = VirtualMachine::new(false, std::io::stdout());
     loop {
-        let token = scanner.next_token();
-        tokens.push(token);
-        if tokens.last().unwrap().token_type == TokenType::Eof {
-            break;
-        }
+        let mut line = String::new();
+        std::io::stdin().read_line(&mut line).unwrap();
+        vm.interpret(&line);
     }
-    tokens.iter().for_each(log::token);
-    if scanner.has_error() {
-        exit(65);
-    }
-    Ok(())
 }
-
-fn parse(filename: &str) -> Result<(), io::Error> {
-    let file = File::open(filename)?;
-    let scanner = Scanner::try_from(file)?;
-    let parser = RecursiveDecendantParser::new();
-
-    let expr = parser.parse_expr(&scanner);
-    if scanner.has_error() || expr.is_none() {
-        exit(65);
+fn exec_file(filename: &str) {
+    let mut vm = VirtualMachine::new(false, std::io::stdout());
+    let mut file = File::open(filename);
+    if let Err(file) = file {
+        eprintln!("Failed to open file: {}", file);
+        exit(74);
     }
-
-    println!("{}", expr.unwrap());
-    Ok(())
-}
-
-fn evaluate(filename: &str) -> Result<(), io::Error> {
-    let file = File::open(filename)?;
-    let scanner = Scanner::try_from(file)?;
-    let parser = RecursiveDecendantParser::new();
-
-    let expr = parser.parse_expr(&scanner);
-    if scanner.has_error() || expr.is_none() {
-        exit(65);
-    }
-
-    let mut interpreter = interpreter::TreeWalk::new();
-    let value = interpreter.eval(&expr.unwrap());
-    match value {
-        Ok(v) => println!("{}", v),
-        Err(e) => {
-            log::error_runtime(&e);
-            exit(70);
-        },
-    }
-
-    Ok(())
-}
-
-fn run(filename: &str) -> Result<(), io::Error> {
-    let file = File::open(filename)?;
-    let scanner = Scanner::try_from(file)?;
-    let parser = RecursiveDecendantParser::new();
-    let mut resolver = Resolver::new();
-    let mut interpreter = interpreter::TreeWalk::new();
-
-    let statements = parser.parse(&scanner);
-    if scanner.has_error() || statements.is_none() {
-        exit(65);
-    }
-    let mut statements = statements.unwrap();
-    statements.iter_mut().for_each(|stmt| resolver.resolve_stmt(stmt));
-    if resolver.has_err() {
-        exit(65);
-    }
-
-    for stmt in &statements {
-        if let Err(e) = interpreter.interpret(stmt) {
-            log::error_runtime(&e);
-            exit(70);
-        }
-    }
-    Ok(())
+    let mut source = String::new();
+    file.unwrap().read_to_string(&mut source).unwrap();
+    vm.interpret(&source);
 }

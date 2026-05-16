@@ -9,6 +9,8 @@ pub use instruction::Instruction;
 use result::InterpreterResult;
 pub use value::Value;
 
+use crate::scanner::Scanner;
+
 const STACK_SIZE: usize = 256;
 
 pub struct VirtualMachine<W: Write> {
@@ -21,17 +23,17 @@ impl<W: Write> VirtualMachine<W> {
         Self { debug, writer }
     }
 
-    pub fn interpret(&mut self, chunk: Chunk) -> InterpreterResult<()> {
-        let ctx = RunContext {
+    pub fn interpret(&mut self, source: &str) -> InterpreterResult<()> {
+        let _scanner = Scanner::new(source);
+        Ok(())
+    }
+
+    pub fn run(&mut self, chunk: Chunk) -> InterpreterResult<()> {
+        let mut ctx = RunContext {
             chunk,
             stack: ArrayVec::new(),
             ip: 0,
         };
-
-        self.run(ctx)
-    }
-
-    fn run(&mut self, mut ctx: RunContext) -> InterpreterResult<()> {
         let mut iter = ctx.chunk.code.iter().copied();
         while let Some((instruction, offset)) = Instruction::from_bytes_iter(&mut iter) {
             if self.debug {

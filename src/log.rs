@@ -76,5 +76,6 @@ pub const fn token_name(token: &Token) -> &'static str {
         True => "TRUE",
         Var => "VAR",
         While => "WHILE",
+        Error => "ERROR",
     }
 }
