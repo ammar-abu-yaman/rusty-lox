@@ -104,6 +104,22 @@ pub enum TokenLiteral<'a> {
     NoValue,
 }
 
+impl TokenLiteral<'_> {
+    pub fn as_number(&self) -> f64 {
+        match self {
+            TokenLiteral::Number(n) => *n,
+            _ => panic!("expected number, got {:?}", self),
+        }
+    }
+
+    pub fn as_string(&self) -> &str {
+        match self {
+            TokenLiteral::String(s) => s,
+            _ => panic!("expected string, got {:?}", self),
+        }
+    }
+}
+
 pub fn identifier_type(s: &str) -> TokenType {
     use TokenType::*;
     match s {

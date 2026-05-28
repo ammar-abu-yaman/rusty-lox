@@ -1,12 +1,14 @@
 use std::io::Write;
 
+mod compiler;
 pub mod instruction;
+pub mod log;
 pub mod result;
 pub mod value;
 
 use arrayvec::ArrayVec;
 pub use instruction::Instruction;
-use result::InterpreterResult;
+use result::{InterpreterError, InterpreterResult};
 pub use value::Value;
 
 use crate::scanner::Scanner;
@@ -24,7 +26,18 @@ impl<W: Write> VirtualMachine<W> {
     }
 
     pub fn interpret(&mut self, source: &str) -> InterpreterResult<()> {
-        let _scanner = Scanner::new(source);
+        let scanner = Scanner::new(source);
+        let mut chunk = Chunk::new();
+        let mut logger = log::Logger;
+        let mut compiler = compiler::ByteCodeCompiler::new(&scanner, &mut logger, &mut chunk);
+
+        compiler.compile();
+        compiler.write_end();
+        if compiler.has_error {
+            return InterpreterResult::Err(InterpreterError::Compile);
+        }
+
+        self.run(chunk)?;
         Ok(())
     }
 
@@ -113,6 +126,21 @@ pub struct Chunk {
     pub code: Vec<u8>,
     pub lines: Vec<u32>,
     pub constants: Vec<Value>,
+}
+
+impl Chunk {
+    pub fn new() -> Self {
+        Self {
+            code: Vec::new(),
+            lines: Vec::new(),
+            constants: Vec::new(),
+        }
+    }
+
+    pub fn write_byte(&mut self, byte: u8, line: u32) {
+        self.code.push(byte);
+        self.lines.push(line);
+    }
 }
 
 #[cfg(test)]

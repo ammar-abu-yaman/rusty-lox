@@ -1,7 +1,7 @@
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 
-#[derive(ToPrimitive, FromPrimitive)]
+#[derive(Debug, ToPrimitive, FromPrimitive)]
 pub enum OpCode {
     Return = 0,
     LoadConst,
@@ -12,6 +12,7 @@ pub enum OpCode {
     Divide,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Instruction {
     Return,
     Const { offset: u8 },
