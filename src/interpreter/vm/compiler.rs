@@ -1,11 +1,12 @@
-use crate::interpreter::vm::instruction::OpCode;
-use crate::interpreter::vm::Instruction;
+use super::instruction::{Instruction, OpCode};
 use crate::token::TokenType;
 
 use super::log::Logger;
 use super::Scanner;
 use crate::token::Token;
 
+use super::mem::MemoryManager;
+use super::object::Object;
 use super::Chunk;
 use super::Value;
 
@@ -15,16 +16,18 @@ pub struct ByteCodeCompiler<'a> {
     pub panic_mode: bool,
     logger: &'a mut Logger,
     chunk: &'a mut Chunk,
+    mem: &'a mut MemoryManager,
     previous: Option<Token<'a>>,
     current: Option<Token<'a>>,
 }
 
 impl<'a> ByteCodeCompiler<'a> {
-    pub fn new(scanner: &'a Scanner, logger: &'a mut Logger, chunk: &'a mut Chunk) -> Self {
+    pub fn new(scanner: &'a Scanner, logger: &'a mut Logger, chunk: &'a mut Chunk, mem: &'a mut MemoryManager) -> Self {
         Self {
             scanner,
             logger,
             chunk,
+            mem,
             has_error: false,
             panic_mode: false,
             previous: None,
@@ -41,60 +44,182 @@ impl<'a> ByteCodeCompiler<'a> {
 }
 
 impl<'a> ByteCodeCompiler<'a> {
-    fn parse(&mut self, precedence: Precedence) {
+    fn declaration(&mut self) {
+        use TokenType::Var;
+        if (self.match_current(Var)) {
+            self.var_declaration();
+        } else {
+            self.statement();
+        }
+        if self.panic_mode {
+            self.synchronize();
+        }
+    }
+
+    fn var_declaration(&mut self) {
+        let global_var_index = self.parse_var("Expected variable name");
+        if self.match_current(TokenType::Asign) {
+            self.expression();
+        } else {
+            self.write_bytes([OpCode::LoadNil]);
+        }
+
+        self.consume(TokenType::SemiColon, "Expected ';' after variable declaration");
+
+        self.define_var(global_var_index);
+    }
+
+    fn synchronize(&mut self) {
+        self.panic_mode = false;
+        while !self.check(TokenType::Eof) && self.current.is_some() {
+            use TokenType::*;
+            if matches!(self.previous.as_ref(), Some(token) if token.token_type == SemiColon) {
+                return;
+            }
+            match self.current.as_ref().unwrap().token_type {
+                Var | Class | Fun | For | If | While | Return => return,
+                _ => {},
+            }
+
+            self.advance();
+        }
+    }
+
+    fn define_var(&mut self, global_var_index: u8) {
+        self.write_bytes([OpCode::DefineGlobal as u8, global_var_index]);
+    }
+}
+
+impl<'a> ByteCodeCompiler<'a> {
+    fn statement(&mut self) {
+        use TokenType::Print;
+        if (self.match_current(Print)) {
+            self.print_statement();
+        } else {
+            self.expression_statement();
+        }
+    }
+
+    fn print_statement(&mut self) {
+        self.expression();
+        self.consume(TokenType::SemiColon, "Expected ';' after expression");
+        self.write_bytes([OpCode::Print]);
+    }
+
+    fn expression_statement(&mut self) {
+        self.expression();
+        self.consume(TokenType::SemiColon, "Expected ';' after expression");
+        self.write_bytes([OpCode::Pop]);
+    }
+}
+
+impl<'a> ByteCodeCompiler<'a> {
+    fn expression(&mut self) {
+        self.parse_precedence(Precedence::Assignment);
+    }
+
+    fn number(&mut self, _can_assign: bool) {
+        let value = Value::Number(self.previous.as_ref().unwrap().literal.as_number());
+        let const_offset = self.add_const(value);
+        self.write_bytes([OpCode::LoadConst as u8, const_offset as u8]);
+    }
+
+    fn grouping(&mut self, _can_assign: bool) {
+        self.expression();
+        self.consume(TokenType::RightParen, "Expected ')' after expression");
+    }
+
+    fn unary(&mut self, _can_assign: bool) {
+        let operator = self.previous.as_ref().unwrap().token_type;
+        self.expression();
+
+        match operator {
+            TokenType::Minus => self.write_bytes([OpCode::Negate]),
+            TokenType::Not => self.write_bytes([OpCode::Not]),
+            _ => return,
+        }
+    }
+
+    fn binary(&mut self, _can_assign: bool) {
+        let operator = self.previous.as_ref().unwrap().token_type;
+        let rule = ParseRule::derive_rule(operator);
+        self.parse_precedence(rule.precedence.next());
+        match operator {
+            TokenType::Plus => self.write_bytes([OpCode::Add]),
+            TokenType::Minus => self.write_bytes([OpCode::Subtract]),
+            TokenType::Star => self.write_bytes([OpCode::Multiply]),
+            TokenType::Div => self.write_bytes([OpCode::Divide]),
+            TokenType::Equal => self.write_bytes([OpCode::Equal]),
+            TokenType::NotEqual => self.write_bytes([OpCode::Equal, OpCode::Not]),
+            TokenType::Greater => self.write_bytes([OpCode::Greater]),
+            TokenType::GreaterEq => self.write_bytes([OpCode::Greater, OpCode::Not]),
+            TokenType::Less => self.write_bytes([OpCode::Less]),
+            TokenType::LessEq => self.write_bytes([OpCode::Greater, OpCode::Not]),
+            _ => unreachable!(""),
+        }
+    }
+
+    fn literal(&mut self, _can_assign: bool) {
+        let operator = self.previous.as_ref().unwrap().token_type;
+        match operator {
+            TokenType::True => self.write_bytes([OpCode::LoadTrue]),
+            TokenType::False => self.write_bytes([OpCode::LoadFalse]),
+            TokenType::Nil => self.write_bytes([OpCode::LoadNil]),
+            _ => unreachable!(""),
+        }
+    }
+
+    fn string(&mut self, _can_assign: bool) {
+        let token_str = self.previous.as_ref().unwrap().literal.as_string();
+        let str_object = self.mem.intern_string(token_str);
+        self.chunk.constants.push(Value::Object(str_object));
+    }
+
+    fn variable(&mut self, can_assign: bool) {
+        self.named_var(self.previous.clone().unwrap(), can_assign);
+    }
+
+    fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
         let rule = ParseRule::derive_rule(self.previous.as_ref().unwrap().token_type);
         if rule.prefix.is_none() {
             self.error("Expected expression");
             return;
         }
-        rule.prefix.unwrap()(self);
+
+        let can_assign = precedence <= Precedence::Assignment;
+        rule.prefix.unwrap()(self, can_assign);
 
         while ParseRule::derive_rule(self.current.as_ref().unwrap().token_type).precedence >= precedence {
             self.advance();
             let rule = ParseRule::derive_rule(self.previous.as_ref().unwrap().token_type);
-            rule.infix.unwrap()(self);
+            rule.infix.unwrap()(self, can_assign);
+        }
+
+        if can_assign && self.match_current(TokenType::Asign) {
+            self.error("Invalid assignment target");
         }
     }
 
-    fn expression(&mut self) {
-        self.parse(Precedence::Assignment);
+    fn parse_var(&mut self, message: impl AsRef<str>) -> u8 {
+        self.consume(TokenType::Identifier, message.as_ref());
+        return self.identifier_const(self.previous.clone().as_ref().unwrap());
     }
 
-    fn number(&mut self) {
-        let token = self.previous.clone().unwrap();
-        let value = Value::Number(token.literal.as_number());
-        let const_offset = self.add_const(value);
-        let instruction = Instruction::Const { offset: const_offset as u8 };
-        self.write_code(instruction, token.pos.line as u32);
-    }
-
-    fn grouping(&mut self) {
-        self.expression();
-        self.consume(TokenType::RightParen, "Expected ')' after expression");
-    }
-
-    fn unary(&mut self) {
-        let operator = self.previous.as_ref().unwrap().token_type;
-        self.expression();
-
-        match operator {
-            TokenType::Minus => self.chunk.write_byte(OpCode::Negate as u8, self.previous.as_ref().unwrap().pos.line as u32),
-            _ => return,
+    fn named_var(&mut self, name: Token<'a>, can_assign: bool) {
+        let arg = self.identifier_const(&name);
+        if can_assign && self.match_current(TokenType::Asign) {
+            self.expression();
+            self.write_bytes([OpCode::SetGlobal as u8, arg]);
+        } else {
+            self.write_bytes([OpCode::GetGlobal as u8, arg]);
         }
     }
 
-    fn binary(&mut self) {
-        let operator = self.previous.as_ref().unwrap().token_type;
-        let rule = ParseRule::derive_rule(operator);
-        self.parse(rule.precedence.next());
-        match operator {
-            TokenType::Plus => self.chunk.write_byte(OpCode::Add as u8, self.previous.as_ref().unwrap().pos.line as u32),
-            TokenType::Minus => self.chunk.write_byte(OpCode::Subtract as u8, self.previous.as_ref().unwrap().pos.line as u32),
-            TokenType::Star => self.chunk.write_byte(OpCode::Multiply as u8, self.previous.as_ref().unwrap().pos.line as u32),
-            TokenType::Div => self.chunk.write_byte(OpCode::Divide as u8, self.previous.as_ref().unwrap().pos.line as u32),
-            _ => unreachable!(""),
-        }
+    fn identifier_const(&mut self, token: &Token<'a>) -> u8 {
+        let name_obj = self.mem.intern_string(token.lexeme);
+        let name_val = Value::Object(name_obj);
+        return self.add_const(name_val) as u8;
     }
 }
 
@@ -105,6 +230,18 @@ impl<'a> ByteCodeCompiler<'a> {
             return;
         }
         self.advance();
+    }
+
+    fn check(&self, token_type: TokenType) -> bool {
+        matches!(self.current.as_ref(), Some(token) if token.token_type == token_type)
+    }
+
+    fn match_current(&mut self, token_type: TokenType) -> bool {
+        if !self.check(token_type) {
+            return false;
+        }
+        self.advance();
+        true
     }
 
     fn advance(&mut self) {
@@ -128,13 +265,16 @@ impl<'a> ByteCodeCompiler<'a> {
         self.chunk.constants.len() - 1
     }
 
-    fn write_code(&mut self, instruction: Instruction, line: u32) {
-        let bytes = instruction.to_bytes();
-        bytes.iter().for_each(|b| self.chunk.write_byte(*b, line));
+    fn write_bytes<const N: usize, T: Into<u8>>(&mut self, bytes: [T; N]) {
+        let line = self.previous.as_ref().unwrap().pos.line as u32;
+        for byte in bytes {
+            self.chunk.code.push(byte.into());
+            self.chunk.lines.push(line);
+        }
     }
 
     pub fn write_end(&mut self) {
-        self.chunk.write_byte(OpCode::Return as u8, self.previous.as_ref().unwrap().pos.line as u32);
+        self.write_bytes([OpCode::Return]);
     }
 }
 
@@ -184,7 +324,7 @@ impl Precedence {
     }
 }
 
-type ParseFn<'a> = fn(&mut ByteCodeCompiler<'a>);
+type ParseFn<'a> = fn(&mut ByteCodeCompiler<'a>, bool);
 
 #[derive(Clone, Copy)]
 struct ParseRule<'a> {
@@ -200,47 +340,56 @@ impl<'a> ParseRule<'a> {
 
     fn derive_rule(token_type: TokenType) -> ParseRule<'a> {
         use TokenType::*;
+        let rule = Self::new;
+        let unary: Option<ParseFn<'a>> = Some(ByteCodeCompiler::unary);
+        let binary: Option<ParseFn<'a>> = Some(ByteCodeCompiler::binary);
+        let grouping: Option<ParseFn<'a>> = Some(ByteCodeCompiler::grouping);
+        let literal: Option<ParseFn<'a>> = Some(ByteCodeCompiler::literal);
+        let number: Option<ParseFn<'a>> = Some(ByteCodeCompiler::number);
+        let string: Option<ParseFn<'a>> = Some(ByteCodeCompiler::string);
+        let variable: Option<ParseFn<'a>> = Some(ByteCodeCompiler::variable);
+
         match token_type {
-            LeftParen => ParseRule::new(Some(ByteCodeCompiler::grouping), None, Precedence::None),
-            RightParen => ParseRule::new(None, None, Precedence::None),
-            LeftBrace => ParseRule::new(None, None, Precedence::None),
-            RightBrace => ParseRule::new(None, None, Precedence::None),
-            Comma => ParseRule::new(None, None, Precedence::None),
-            Dot => ParseRule::new(None, None, Precedence::None),
-            Minus => ParseRule::new(Some(ByteCodeCompiler::unary), Some(ByteCodeCompiler::binary), Precedence::Term),
-            Plus => ParseRule::new(None, Some(ByteCodeCompiler::binary), Precedence::Term),
-            SemiColon => ParseRule::new(None, None, Precedence::None),
-            Div => ParseRule::new(None, Some(ByteCodeCompiler::binary), Precedence::Factor),
-            Star => ParseRule::new(None, Some(ByteCodeCompiler::binary), Precedence::Factor),
-            Not => ParseRule::new(None, None, Precedence::None),
-            NotEqual => ParseRule::new(None, None, Precedence::None),
-            Asign => ParseRule::new(None, None, Precedence::None),
-            Equal => ParseRule::new(None, None, Precedence::None),
-            Greater => ParseRule::new(None, None, Precedence::None),
-            GreaterEq => ParseRule::new(None, None, Precedence::None),
-            Less => ParseRule::new(None, None, Precedence::None),
-            LessEq => ParseRule::new(None, None, Precedence::None),
-            Identifier => ParseRule::new(None, None, Precedence::None),
-            String => ParseRule::new(None, None, Precedence::None),
-            Number => ParseRule::new(Some(ByteCodeCompiler::number), None, Precedence::None),
-            And => ParseRule::new(None, None, Precedence::None),
-            Class => ParseRule::new(None, None, Precedence::None),
-            Else => ParseRule::new(None, None, Precedence::None),
-            False => ParseRule::new(None, None, Precedence::None),
-            For => ParseRule::new(None, None, Precedence::None),
-            Fun => ParseRule::new(None, None, Precedence::None),
-            If => ParseRule::new(None, None, Precedence::None),
-            Nil => ParseRule::new(None, None, Precedence::None),
-            Or => ParseRule::new(None, None, Precedence::None),
-            Print => ParseRule::new(None, None, Precedence::None),
-            Return => ParseRule::new(None, None, Precedence::None),
-            Super => ParseRule::new(None, None, Precedence::None),
-            This => ParseRule::new(None, None, Precedence::None),
-            True => ParseRule::new(None, None, Precedence::None),
-            Var => ParseRule::new(None, None, Precedence::None),
-            While => ParseRule::new(None, None, Precedence::None),
-            Error => ParseRule::new(None, None, Precedence::None),
-            Eof => ParseRule::new(None, None, Precedence::None),
+            LeftParen => rule(grouping, None, Precedence::None),
+            RightParen => rule(None, None, Precedence::None),
+            LeftBrace => rule(None, None, Precedence::None),
+            RightBrace => rule(None, None, Precedence::None),
+            Comma => rule(None, None, Precedence::None),
+            Dot => rule(None, None, Precedence::None),
+            Minus => rule(unary, binary, Precedence::Term),
+            Plus => rule(None, binary, Precedence::Term),
+            SemiColon => rule(None, None, Precedence::None),
+            Div => rule(None, binary, Precedence::Factor),
+            Star => rule(None, binary, Precedence::Factor),
+            Not => rule(None, None, Precedence::None),
+            Asign => rule(None, None, Precedence::None),
+            Equal => rule(None, binary, Precedence::Comparison),
+            NotEqual => rule(None, binary, Precedence::Comparison),
+            Greater => rule(None, binary, Precedence::Comparison),
+            GreaterEq => rule(None, binary, Precedence::Comparison),
+            Less => rule(None, binary, Precedence::Comparison),
+            LessEq => rule(None, binary, Precedence::Comparison),
+            Identifier => rule(variable, None, Precedence::None),
+            String => rule(string, None, Precedence::None),
+            Number => rule(number, None, Precedence::None),
+            And => rule(None, None, Precedence::None),
+            Class => rule(None, None, Precedence::None),
+            Else => rule(None, None, Precedence::None),
+            False => rule(literal, None, Precedence::None),
+            For => rule(None, None, Precedence::None),
+            Fun => rule(None, None, Precedence::None),
+            If => rule(None, None, Precedence::None),
+            Nil => rule(literal, None, Precedence::None),
+            Or => rule(None, None, Precedence::None),
+            Print => rule(None, None, Precedence::None),
+            Return => rule(None, None, Precedence::None),
+            Super => rule(None, None, Precedence::None),
+            This => rule(None, None, Precedence::None),
+            True => rule(literal, None, Precedence::None),
+            Var => rule(None, None, Precedence::None),
+            While => rule(None, None, Precedence::None),
+            Error => rule(None, None, Precedence::None),
+            Eof => rule(None, None, Precedence::None),
         }
     }
 }
@@ -402,7 +551,8 @@ mod tests {
         let scanner = Scanner::new(source);
         let mut chunk = Chunk::new();
         let mut logger = Logger;
-        let mut compiler = ByteCodeCompiler::new(&scanner, &mut logger, &mut chunk);
+        let mut heap = MemoryManager::new();
+        let mut compiler = ByteCodeCompiler::new(&scanner, &mut logger, &mut chunk, &mut heap);
 
         compiler.compile();
         compiler.write_end();

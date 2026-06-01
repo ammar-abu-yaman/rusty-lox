@@ -5,11 +5,29 @@ use num_traits::FromPrimitive;
 pub enum OpCode {
     Return = 0,
     LoadConst,
+    LoadTrue,
+    LoadFalse,
+    LoadNil,
     Negate,
     Add,
     Subtract,
     Multiply,
     Divide,
+    Not,
+    Equal,
+    Greater,
+    Less,
+    Print,
+    Pop,
+    DefineGlobal,
+    GetGlobal,
+    SetGlobal,
+}
+
+impl From<OpCode> for u8 {
+    fn from(op: OpCode) -> Self {
+        op as u8
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -17,10 +35,22 @@ pub enum Instruction {
     Return,
     Const { offset: u8 },
     Negate,
+    Not,
     Add,
     Subtract,
     Multiply,
     Divide,
+    LoadTrue,
+    LoadFalse,
+    LoadNil,
+    Equal,
+    Greater,
+    Less,
+    Print,
+    Pop,
+    DefineGlobal { index: u8 },
+    GetGlobal { index: u8 },
+    SetGlobal { index: u8 },
 }
 
 impl Instruction {
@@ -38,19 +68,31 @@ impl Instruction {
             OpCode::Subtract => Instruction::Subtract,
             OpCode::Multiply => Instruction::Multiply,
             OpCode::Divide => Instruction::Divide,
+            OpCode::LoadTrue => Instruction::LoadTrue,
+            OpCode::LoadFalse => Instruction::LoadFalse,
+            OpCode::LoadNil => Instruction::LoadNil,
+            OpCode::Not => Instruction::Not,
+            OpCode::Equal => Instruction::Equal,
+            OpCode::Greater => Instruction::Greater,
+            OpCode::Less => Instruction::Less,
+            OpCode::Print => Instruction::Print,
+            OpCode::Pop => Instruction::Pop,
+            OpCode::DefineGlobal => {
+                let index = iter.next()?;
+                offset += 1;
+                Instruction::DefineGlobal { index }
+            },
+            OpCode::GetGlobal => {
+                let index = iter.next()?;
+                offset += 1;
+                Instruction::GetGlobal { index }
+            },
+            OpCode::SetGlobal => {
+                let index = iter.next()?;
+                offset += 1;
+                Instruction::SetGlobal { index }
+            },
         };
         Some((instruction, offset))
-    }
-
-    pub fn to_bytes(&self) -> Vec<u8> {
-        match self {
-            Instruction::Return => vec![OpCode::Return as u8],
-            Instruction::Const { offset } => vec![OpCode::LoadConst as u8, *offset],
-            Instruction::Negate => vec![OpCode::Negate as u8],
-            Instruction::Add => vec![OpCode::Add as u8],
-            Instruction::Subtract => vec![OpCode::Subtract as u8],
-            Instruction::Multiply => vec![OpCode::Multiply as u8],
-            Instruction::Divide => vec![OpCode::Divide as u8],
-        }
     }
 }

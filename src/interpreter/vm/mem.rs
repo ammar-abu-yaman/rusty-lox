@@ -1,9 +1,11 @@
 use super::object::Object;
+use super::value::Value;
 use std::{collections::HashMap, hash::Hash};
 
 pub struct MemoryManager {
     objects: *mut Object,
     strings: HashMap<StrPtr, *mut Object>,
+    globals: HashMap<StrPtr, Value>,
 }
 
 impl MemoryManager {
@@ -11,6 +13,7 @@ impl MemoryManager {
         Self {
             objects: std::ptr::null_mut(),
             strings: HashMap::new(),
+            globals: HashMap::new(),
         }
     }
 }
@@ -29,6 +32,25 @@ impl MemoryManager {
         let object = Object::from(string);
         let ptr = unsafe { self.allocate_object(object) };
         ptr
+    }
+
+    pub fn define_global(&mut self, key: *mut Object, value: Value) {
+        let name = unsafe { StrPtr(key.as_ref_unchecked().str() as *const str) };
+        self.globals.insert(name, value);
+    }
+
+    pub fn get_global(&self, key: *mut Object) -> Option<Value> {
+        let name = unsafe { StrPtr(key.as_ref_unchecked().str() as *const str) };
+        return self.globals.get(&name).copied();
+    }
+
+    pub fn set_global(&mut self, key: *mut Object, value: Value) -> bool {
+        let name = unsafe { StrPtr(key.as_ref_unchecked().str() as *const str) };
+        if self.globals.contains_key(&name) {
+            return false;
+        }
+        self.globals.insert(name, value);
+        true
     }
 
     pub unsafe fn allocate_object(&mut self, mut object: Object) -> *mut Object {
