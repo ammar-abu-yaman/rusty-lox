@@ -16,7 +16,7 @@ use value::Value;
 
 use crate::scanner::Scanner;
 
-const STACK_SIZE: usize = 256;
+pub(self) const STACK_SIZE: usize = 256;
 
 pub struct VirtualMachine<W: Write> {
     debug: bool,
@@ -45,6 +45,7 @@ impl<W: Write> VirtualMachine<W> {
             return InterpreterResult::Err(InterpreterError::Compile);
         }
 
+        std::mem::drop(compiler);
         self.run(chunk)?;
         Ok(())
     }
@@ -139,6 +140,14 @@ impl<W: Write> VirtualMachine<W> {
                         let name_str = unsafe { name.as_ref_unchecked().str() };
                         self.runtime_err(&mut ctx, &format!("Undefined global: {name_str}"));
                     }
+                },
+                Instruction::GetLocal { index } => {
+                    let value = ctx.stack[index as usize].clone();
+                    ctx.stack.push(value);
+                },
+                Instruction::SetLocal { index } => {
+                    let value = ctx.stack.last().cloned().unwrap();
+                    ctx.stack[index as usize] = value;
                 },
             }
         }
@@ -239,6 +248,14 @@ impl<W: Write> VirtualMachine<W> {
             },
             Instruction::SetGlobal { .. } => {
                 writeln!(self.writer, "OP_SET_GLOBAL");
+            },
+            Instruction::GetLocal { index } => {
+                let name = "OP_GET_LOCAL";
+                writeln!(self.writer, "{name:<16} {index:4}");
+            },
+            Instruction::SetLocal { index } => {
+                let name = "OP_SET_LOCAL";
+                writeln!(self.writer, "{name:<16} {index:4}");
             },
         }
     }

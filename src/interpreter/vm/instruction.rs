@@ -22,6 +22,8 @@ pub enum OpCode {
     DefineGlobal,
     GetGlobal,
     SetGlobal,
+    GetLocal,
+    SetLocal,
 }
 
 impl From<OpCode> for u8 {
@@ -51,6 +53,8 @@ pub enum Instruction {
     DefineGlobal { index: u8 },
     GetGlobal { index: u8 },
     SetGlobal { index: u8 },
+    GetLocal { index: u8 },
+    SetLocal { index: u8 },
 }
 
 impl Instruction {
@@ -91,6 +95,16 @@ impl Instruction {
                 let index = iter.next()?;
                 offset += 1;
                 Instruction::SetGlobal { index }
+            },
+            OpCode::GetLocal => {
+                let index = iter.next()?;
+                offset += 1;
+                Instruction::GetLocal { index }
+            },
+            OpCode::SetLocal => {
+                let index = iter.next()?;
+                offset += 1;
+                Instruction::SetLocal { index }
             },
         };
         Some((instruction, offset))

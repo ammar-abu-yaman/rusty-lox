@@ -9,6 +9,21 @@ use super::mem::MemoryManager;
 use super::object::Object;
 use super::Chunk;
 use super::Value;
+use super::STACK_SIZE;
+
+use arrayvec::ArrayVec;
+
+#[derive(Debug, Clone)]
+struct Local<'a> {
+    token: Token<'a>,
+    depth: i32,
+}
+
+#[derive(Debug, Default)]
+struct Stack<'a> {
+    locals: ArrayVec<Local<'a>, STACK_SIZE>,
+    depth: i32,
+}
 
 pub struct ByteCodeCompiler<'a> {
     scanner: &'a Scanner,
@@ -17,6 +32,7 @@ pub struct ByteCodeCompiler<'a> {
     logger: &'a mut Logger,
     chunk: &'a mut Chunk,
     mem: &'a mut MemoryManager,
+    stack: Stack<'a>,
     previous: Option<Token<'a>>,
     current: Option<Token<'a>>,
 }
@@ -30,6 +46,7 @@ impl<'a> ByteCodeCompiler<'a> {
             mem,
             has_error: false,
             panic_mode: false,
+            stack: Stack::default(),
             previous: None,
             current: None,
         }
@@ -45,11 +62,14 @@ impl<'a> ByteCodeCompiler<'a> {
 
 impl<'a> ByteCodeCompiler<'a> {
     fn declaration(&mut self) {
-        use TokenType::Var;
-        if (self.match_current(Var)) {
+        if (self.match_current(TokenType::Var)) {
             self.var_declaration();
+        } else if self.match_current(TokenType::RightBrace) {
+            self.block();
         } else {
+            self.begin_scope();
             self.statement();
+            self.end_scope();
         }
         if self.panic_mode {
             self.synchronize();
@@ -85,7 +105,18 @@ impl<'a> ByteCodeCompiler<'a> {
         }
     }
 
+    fn block(&mut self) {
+        while !self.check(TokenType::RightBrace) || !self.check(TokenType::Eof) {
+            self.declaration();
+        }
+        self.consume(TokenType::RightBrace, "Expected '}' after block");
+    }
+
     fn define_var(&mut self, global_var_index: u8) {
+        if self.stack.depth > 0 {
+            self.mark_initialized();
+            return;
+        }
         self.write_bytes([OpCode::DefineGlobal as u8, global_var_index]);
     }
 }
@@ -203,16 +234,23 @@ impl<'a> ByteCodeCompiler<'a> {
 
     fn parse_var(&mut self, message: impl AsRef<str>) -> u8 {
         self.consume(TokenType::Identifier, message.as_ref());
+        self.declare_var();
+        if self.stack.depth > 0 {
+            return 0;
+        }
         return self.identifier_const(self.previous.clone().as_ref().unwrap());
     }
 
     fn named_var(&mut self, name: Token<'a>, can_assign: bool) {
-        let arg = self.identifier_const(&name);
+        let (arg, get_op, set_op) = self.resolve_local(name.lexeme).map_or_else(
+            || (self.identifier_const(&name), OpCode::GetGlobal as u8, OpCode::SetGlobal as u8),
+            |i| (i as u8, OpCode::GetLocal as u8, OpCode::SetLocal as u8),
+        );
         if can_assign && self.match_current(TokenType::Asign) {
             self.expression();
-            self.write_bytes([OpCode::SetGlobal as u8, arg]);
+            self.write_bytes([set_op, arg]);
         } else {
-            self.write_bytes([OpCode::GetGlobal as u8, arg]);
+            self.write_bytes([get_op, arg]);
         }
     }
 
@@ -220,6 +258,26 @@ impl<'a> ByteCodeCompiler<'a> {
         let name_obj = self.mem.intern_string(token.lexeme);
         let name_val = Value::Object(name_obj);
         return self.add_const(name_val) as u8;
+    }
+
+    fn declare_var(&mut self) {
+        if self.stack.depth == 0 {
+            return;
+        }
+        let name = self.previous.clone().unwrap();
+
+        for i in (0..self.stack.locals.len()).rev() {
+            let local = &self.stack.locals[i];
+            if local.depth != -1 && local.depth < self.stack.depth as i32 {
+                break;
+            }
+            if name.lexeme == local.token.lexeme {
+                self.error("Already a variable with this name in scope");
+                return;
+            }
+        }
+
+        self.add_local(name);
     }
 }
 
@@ -265,6 +323,33 @@ impl<'a> ByteCodeCompiler<'a> {
         self.chunk.constants.len() - 1
     }
 
+    fn add_local(&mut self, name: Token<'a>) {
+        if self.stack.locals.len() >= u8::MAX.into() {
+            self.error("Too many local variables in function");
+            return;
+        }
+        let local = Local { token: name, depth: -1 };
+        self.stack.locals.push(local);
+    }
+
+    fn mark_initialized(&mut self) {
+        if let Some(local) = self.stack.locals.last_mut() {
+            local.depth = self.stack.depth;
+        }
+    }
+
+    fn resolve_local(&mut self, name: &str) -> Option<usize> {
+        for (i, local) in self.stack.locals.iter().enumerate().rev() {
+            if local.token.lexeme == name {
+                if local.depth == -1 {
+                    self.error("Can't read local variable in its own initializer.");
+                }
+                return Some(i);
+            }
+        }
+        None
+    }
+
     fn write_bytes<const N: usize, T: Into<u8>>(&mut self, bytes: [T; N]) {
         let line = self.previous.as_ref().unwrap().pos.line as u32;
         for byte in bytes {
@@ -275,6 +360,20 @@ impl<'a> ByteCodeCompiler<'a> {
 
     pub fn write_end(&mut self) {
         self.write_bytes([OpCode::Return]);
+    }
+}
+
+impl<'a> ByteCodeCompiler<'a> {
+    fn begin_scope(&mut self) {
+        self.stack.depth += 1;
+    }
+
+    fn end_scope(&mut self) {
+        self.stack.depth -= 1;
+        while self.stack.depth > 0 && !self.stack.locals.last().map_or(0, |l| l.depth) > self.stack.depth as i32 {
+            self.stack.locals.pop();
+            self.write_bytes([OpCode::Pop]);
+        }
     }
 }
 
@@ -559,6 +658,7 @@ mod tests {
 
         assert!(!compiler.has_error, "Compilation failed with errors");
 
+        std::mem::drop(compiler);
         let mut actual = Vec::new();
         let mut iter = chunk.code.iter().copied();
         let mut byte_offset = 0;
