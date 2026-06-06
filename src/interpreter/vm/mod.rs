@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{stderr, Write};
 
 mod compiler;
 pub mod instruction;
@@ -9,7 +9,7 @@ pub mod result;
 pub mod value;
 
 use arrayvec::ArrayVec;
-use instruction::{Instruction, OpCode};
+use instruction::Instruction;
 use mem::MemoryManager;
 use result::{InterpreterError, InterpreterResult};
 use value::Value;
@@ -36,7 +36,7 @@ impl<W: Write> VirtualMachine<W> {
     pub fn interpret(&mut self, source: &str) -> InterpreterResult<()> {
         let scanner = Scanner::new(source);
         let mut chunk = Chunk::new();
-        let mut logger = log::Logger;
+        let mut logger = log::Logger::new(&mut self.writer);
         let mut compiler = compiler::ByteCodeCompiler::new(&scanner, &mut logger, &mut chunk, &mut self.mem);
 
         compiler.compile();
@@ -62,13 +62,11 @@ impl<W: Write> VirtualMachine<W> {
                 writeln!(self.writer, "stack: {:?}", ctx.stack);
                 self.disassemble(&instruction, None, ctx.ip);
             }
-            ctx.ip += offset;
             match instruction {
                 Instruction::Return => return Ok(()),
                 Instruction::Const { offset } => {
                     let value = ctx.chunk.constants[offset as usize].clone();
                     ctx.stack.push(value);
-                    return Ok(());
                 },
                 Instruction::Negate => {
                     if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) {
@@ -102,7 +100,6 @@ impl<W: Write> VirtualMachine<W> {
                 Instruction::Equal => {
                     let b = ctx.stack.pop().unwrap();
                     let a = ctx.stack.pop().unwrap();
-                    ctx.stack.push(Value::Bool(a == b));
                     if matches!(a, Value::Object(_)) && matches!(b, Value::Object(_)) {
                         let a = a.as_object();
                         let b = b.as_object();
@@ -132,13 +129,15 @@ impl<W: Write> VirtualMachine<W> {
                     } else {
                         let name_str = unsafe { name.as_ref_unchecked().str() };
                         self.runtime_err(&mut ctx, &format!("Undefined global: {name_str}"));
+                        return Err(InterpreterError::Runtime);
                     }
                 },
                 Instruction::SetGlobal { index } => {
                     let name = ctx.chunk.constants[index as usize].as_object_ptr();
-                    if !self.mem.set_global(name, ctx.chunk.constants.pop().unwrap()) {
+                    if !self.mem.set_global(name, ctx.peek_stack(0).cloned().unwrap()) {
                         let name_str = unsafe { name.as_ref_unchecked().str() };
                         self.runtime_err(&mut ctx, &format!("Undefined global: {name_str}"));
+                        return Err(InterpreterError::Runtime);
                     }
                 },
                 Instruction::GetLocal { index } => {
@@ -150,12 +149,19 @@ impl<W: Write> VirtualMachine<W> {
                     ctx.stack[index as usize] = value;
                 },
             }
+
+            ctx.ip += offset;
         }
         Ok(())
     }
 
     #[inline(always)]
     fn binary_math_op(&mut self, ctx: &mut RunContext, op: fn(f64, f64) -> f64) -> InterpreterResult<()> {
+        if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) || !matches!(ctx.peek_stack(1), Some(Value::Number(..))) {
+            self.runtime_err(ctx, "Operand must be a number.");
+            return Err(InterpreterError::Runtime);
+        }
+
         let value2 = ctx.stack.pop().unwrap().as_number();
         let value1 = ctx.stack.pop().unwrap().as_number();
         let result = Value::Number(op(value1, value2));
@@ -186,7 +192,7 @@ impl<W: Write> VirtualMachine<W> {
     }
 
     fn disassemble(&mut self, instruction: &Instruction, value: Option<&Value>, offset: usize) {
-        print!("{:04} ", offset);
+        write!(self.writer, "{:04} ", offset);
         match instruction {
             Instruction::Return => {
                 writeln!(self.writer, "OP_RETURN");
@@ -308,4 +314,228 @@ impl Chunk {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use instruction::OpCode;
+
+    /// A helper function to run a manually constructed chunk through the VM in isolation.
+    /// It returns the InterpreterResult and the captured standard output/error as a String.
+    #[allow(dead_code)]
+    fn run_chunk(chunk: Chunk) -> (InterpreterResult<()>, String) {
+        let mut buffer = Vec::new();
+        let result;
+        {
+            let mut vm = VirtualMachine::new(false, &mut buffer);
+            result = vm.run(chunk);
+        }
+        (result, String::from_utf8_lossy(&buffer).to_string())
+    }
+
+    fn run_chunk_with_mem(chunk: Chunk, mem: MemoryManager) -> (InterpreterResult<()>, String, MemoryManager) {
+        let mut buffer = Vec::new();
+        let result;
+        let returned_mem;
+        {
+            let mut vm = VirtualMachine {
+                debug: false,
+                writer: &mut buffer,
+                mem,
+            };
+            result = vm.run(chunk);
+            returned_mem = vm.mem; // Extract the memory manager to inspect globals/heap after run
+        }
+        (result, String::from_utf8_lossy(&buffer).to_string(), returned_mem)
+    }
+
+    #[test]
+    fn test_arithmetic() {
+        let mut chunk = Chunk::new();
+        chunk.constants.push(Value::Number(1.2));
+        chunk.constants.push(Value::Number(3.4));
+
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(0);
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(1);
+        chunk.code.push(OpCode::Add as u8);
+        chunk.code.push(OpCode::Print as u8);
+        chunk.code.push(OpCode::Return as u8);
+        chunk.lines = vec![1; chunk.code.len()];
+
+        let (result, output) = run_chunk(chunk);
+        assert!(result.is_ok());
+        assert_eq!(output.trim(), "4.6");
+    }
+
+    #[test]
+    fn test_negate() {
+        let mut chunk = Chunk::new();
+        chunk.constants.push(Value::Number(10.0));
+
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(0);
+        chunk.code.push(OpCode::Negate as u8);
+        chunk.code.push(OpCode::Print as u8);
+        chunk.code.push(OpCode::Return as u8);
+        chunk.lines = vec![1; chunk.code.len()];
+
+        let (result, output) = run_chunk(chunk);
+        assert!(result.is_ok());
+        assert_eq!(output.trim(), "-10");
+    }
+
+    #[test]
+    fn test_literals() {
+        let mut chunk = Chunk::new();
+        chunk.code.push(OpCode::LoadTrue as u8);
+        chunk.code.push(OpCode::Print as u8);
+        chunk.code.push(OpCode::LoadFalse as u8);
+        chunk.code.push(OpCode::Print as u8);
+        chunk.code.push(OpCode::LoadNil as u8);
+        chunk.code.push(OpCode::Print as u8);
+        chunk.code.push(OpCode::Return as u8);
+        chunk.lines = vec![1; chunk.code.len()];
+
+        let (result, output) = run_chunk(chunk);
+        assert!(result.is_ok());
+        assert_eq!(output.trim(), "true\nfalse\nnil");
+    }
+
+    #[test]
+    fn test_comparison() {
+        let mut chunk = Chunk::new();
+        chunk.constants.push(Value::Number(5.0));
+        chunk.constants.push(Value::Number(10.0));
+
+        // 5 < 10
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(0);
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(1);
+        chunk.code.push(OpCode::Less as u8);
+        chunk.code.push(OpCode::Print as u8);
+
+        // 5 > 10
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(0);
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(1);
+        chunk.code.push(OpCode::Greater as u8);
+        chunk.code.push(OpCode::Print as u8);
+
+        chunk.code.push(OpCode::Return as u8);
+        chunk.lines = vec![1; chunk.code.len()];
+
+        let (result, output) = run_chunk(chunk);
+        assert!(result.is_ok());
+        assert_eq!(output.trim(), "true\nfalse");
+    }
+
+    #[test]
+    fn test_global_variables() {
+        let mut mm = MemoryManager::new();
+        let name_ptr = mm.intern_string("a");
+
+        let mut chunk = Chunk::new();
+        chunk.constants.push(Value::Object(name_ptr));
+        chunk.constants.push(Value::Number(100.0));
+        chunk.constants.push(Value::Number(200.0));
+
+        // var a = 100;
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(1);
+        chunk.code.push(OpCode::DefineGlobal as u8);
+        chunk.code.push(0);
+
+        // a = 200;
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(2);
+        chunk.code.push(OpCode::SetGlobal as u8);
+        chunk.code.push(0);
+        chunk.code.push(OpCode::Pop as u8); // pop assignment value
+
+        // print a;
+        chunk.code.push(OpCode::GetGlobal as u8);
+        chunk.code.push(0);
+        chunk.code.push(OpCode::Print as u8);
+
+        chunk.code.push(OpCode::Return as u8);
+        chunk.lines = vec![1; chunk.code.len()];
+
+        let (result, output, _) = run_chunk_with_mem(chunk, mm);
+        assert!(result.is_ok());
+        assert_eq!(output.trim(), "200");
+    }
+
+    #[test]
+    fn test_local_variables() {
+        let mut chunk = Chunk::new();
+        chunk.constants.push(Value::Number(10.0));
+        chunk.constants.push(Value::Number(20.0));
+
+        // push 10 (local 0)
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(0);
+        // push 20 (local 1)
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(1);
+
+        // set local 0 = 30 (manually push 30 first)
+        chunk.constants.push(Value::Number(30.0));
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(2);
+        chunk.code.push(OpCode::SetLocal as u8);
+        chunk.code.push(0);
+        chunk.code.push(OpCode::Pop as u8);
+
+        // print local 0
+        chunk.code.push(OpCode::GetLocal as u8);
+        chunk.code.push(0);
+        chunk.code.push(OpCode::Print as u8);
+
+        // print local 1
+        chunk.code.push(OpCode::GetLocal as u8);
+        chunk.code.push(1);
+        chunk.code.push(OpCode::Print as u8);
+
+        chunk.code.push(OpCode::Return as u8);
+        chunk.lines = vec![1; chunk.code.len()];
+
+        let (result, output) = run_chunk(chunk);
+        assert!(result.is_ok());
+        assert_eq!(output.trim(), "30\n20");
+    }
+
+    #[test]
+    fn test_blocks_and_scopes() {
+        let mut chunk = Chunk::new();
+        chunk.constants.push(Value::Number(1.0));
+        chunk.constants.push(Value::Number(2.0));
+
+        // Outer scope: var a = 1
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(0);
+
+        // Inner block
+        // var b = 2
+        chunk.code.push(OpCode::LoadConst as u8);
+        chunk.code.push(1);
+        // print b
+        chunk.code.push(OpCode::GetLocal as u8);
+        chunk.code.push(1);
+        chunk.code.push(OpCode::Print as u8);
+        // end block: pop b
+        chunk.code.push(OpCode::Pop as u8);
+
+        // back in outer scope
+        // print a
+        chunk.code.push(OpCode::GetLocal as u8);
+        chunk.code.push(0);
+        chunk.code.push(OpCode::Print as u8);
+
+        chunk.code.push(OpCode::Return as u8);
+        chunk.lines = vec![1; chunk.code.len()];
+
+        let (result, output) = run_chunk(chunk);
+        assert!(result.is_ok());
+        assert_eq!(output.trim(), "2\n1");
+    }
 }

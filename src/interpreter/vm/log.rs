@@ -1,17 +1,28 @@
 use crate::token::Token;
+use std::io::Write;
 
-pub struct Logger;
+pub struct Logger<W: Write> {
+    writer: W,
+}
 
-impl Logger {
-    pub fn log_err_at(&self, token: &Token, message: &str) {
+impl<W: Write> Logger<W> {
+    pub fn new(writer: W) -> Self {
+        Self { writer }
+    }
+
+    pub fn log_err_at(&mut self, token: &Token, message: &str) {
         use crate::token::TokenType;
-        eprintln!("[line {}] Error ", token.pos.line);
+        let _ = write!(self.writer, "[line {}] Error ", token.pos.line);
         match token.token_type {
-            TokenType::Eof => eprint!("at End"),
-            TokenType::Error => {},
-            _ => eprint!("at {}", token.pos.offset),
+            TokenType::Eof => {
+                let _ = write!(self.writer, "at End");
+            }
+            TokenType::Error => {}
+            _ => {
+                let _ = write!(self.writer, "at '{}'", token.lexeme);
+            }
         }
 
-        eprintln!(": {}", message);
+        let _ = writeln!(self.writer, ": {}", message);
     }
 }
