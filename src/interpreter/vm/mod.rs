@@ -59,8 +59,7 @@ impl<W: Write> VirtualMachine<W> {
             }
             let (instruction, offset) = instruction_result.unwrap();
             if self.debug {
-                writeln!(self.writer, "stack: {:?}", ctx.stack);
-                self.disassemble(&instruction, None, ctx.ip);
+                self.disassemble(&ctx.chunk, &instruction, ctx.ip, offset);
             }
             match instruction {
                 Instruction::Return => return Ok(()),
@@ -199,84 +198,92 @@ impl<W: Write> VirtualMachine<W> {
         Ok(())
     }
 
-    fn disassemble(&mut self, instruction: &Instruction, value: Option<&Value>, offset: usize) {
+    fn disassemble(&mut self, chunk: &Chunk, instruction: &Instruction, offset: usize, consumed: usize) {
         write!(self.writer, "{:04} ", offset);
+
+        // Line column logic
+        if offset > 0 && chunk.lines[offset] == chunk.lines[offset - 1] {
+            write!(self.writer, "   | ");
+        } else {
+            write!(self.writer, "{:4} ", chunk.lines[offset]);
+        }
+
         match instruction {
             Instruction::Return => {
                 writeln!(self.writer, "OP_RETURN");
-            },
+            }
             Instruction::Const { offset: const_offset } => {
-                write!(self.writer, "{:<16} {:4}", "OP_CONSTANT", const_offset);
-                if let Some(v) = value {
-                    write!(self.writer, " '{v}'");
-                }
-                writeln!(self.writer);
-            },
+                let value = &chunk.constants[*const_offset as usize];
+                writeln!(self.writer, "{:<16} {:4} '{}'", "OP_CONSTANT", const_offset, value);
+            }
             Instruction::Negate => {
                 writeln!(self.writer, "OP_NEGATE");
-            },
+            }
             Instruction::Add => {
                 writeln!(self.writer, "OP_ADD");
-            },
+            }
             Instruction::Subtract => {
                 writeln!(self.writer, "OP_SUBTRACT");
-            },
+            }
             Instruction::Multiply => {
                 writeln!(self.writer, "OP_MULTIPLY");
-            },
+            }
             Instruction::Divide => {
                 writeln!(self.writer, "OP_DIVIDE");
-            },
+            }
             Instruction::LoadTrue => {
                 writeln!(self.writer, "OP_TRUE");
-            },
+            }
             Instruction::LoadFalse => {
                 writeln!(self.writer, "OP_FALSE");
-            },
+            }
             Instruction::LoadNil => {
                 writeln!(self.writer, "OP_NIL");
-            },
+            }
             Instruction::Not => {
                 writeln!(self.writer, "OP_NOT");
-            },
+            }
             Instruction::Equal => {
                 writeln!(self.writer, "OP_EQUAL");
-            },
+            }
             Instruction::Greater => {
                 writeln!(self.writer, "OP_GREATER");
-            },
+            }
             Instruction::Less => {
                 writeln!(self.writer, "OP_LESS");
-            },
+            }
             Instruction::Print => {
                 writeln!(self.writer, "OP_PRINT");
-            },
+            }
             Instruction::Pop => {
                 writeln!(self.writer, "OP_POP");
-            },
-            Instruction::DefineGlobal { .. } => {
-                writeln!(self.writer, "OP_DEFINE_GLOBAL");
-            },
-            Instruction::GetGlobal { .. } => {
-                writeln!(self.writer, "OP_GET_GLOBAL");
-            },
-            Instruction::SetGlobal { .. } => {
-                writeln!(self.writer, "OP_SET_GLOBAL");
-            },
+            }
+            Instruction::DefineGlobal { index } => {
+                let value = &chunk.constants[*index as usize];
+                writeln!(self.writer, "{:<16} {:4} '{}'", "OP_DEFINE_GLOBAL", index, value);
+            }
+            Instruction::GetGlobal { index } => {
+                let value = &chunk.constants[*index as usize];
+                writeln!(self.writer, "{:<16} {:4} '{}'", "OP_GET_GLOBAL", index, value);
+            }
+            Instruction::SetGlobal { index } => {
+                let value = &chunk.constants[*index as usize];
+                writeln!(self.writer, "{:<16} {:4} '{}'", "OP_SET_GLOBAL", index, value);
+            }
             Instruction::GetLocal { index } => {
-                let name = "OP_GET_LOCAL";
-                writeln!(self.writer, "{name:<16} {index:4}");
-            },
+                writeln!(self.writer, "{:<16} {:4}", "OP_GET_LOCAL", index);
+            }
             Instruction::SetLocal { index } => {
-                let name = "OP_SET_LOCAL";
-                writeln!(self.writer, "{name:<16} {index:4}");
-            },
-            Instruction::JumpIfFalse { .. } => {
-                writeln!(self.writer, "OP_JUMP_IF_FALSE");
-            },
-            Instruction::Jump { .. } => {
-                writeln!(self.writer, "OP_JUMP");
-            },
+                writeln!(self.writer, "{:<16} {:4}", "OP_SET_LOCAL", index);
+            }
+            Instruction::JumpIfFalse { offset: jump_offset } => {
+                let target = offset + consumed + *jump_offset as usize;
+                writeln!(self.writer, "{:<16} {:4} -> {:04}", "OP_JUMP_IF_FALSE", jump_offset, target);
+            }
+            Instruction::Jump { offset: jump_offset } => {
+                let target = offset + consumed + *jump_offset as usize;
+                writeln!(self.writer, "{:<16} {:4} -> {:04}", "OP_JUMP", jump_offset, target);
+            }
         }
     }
 }
