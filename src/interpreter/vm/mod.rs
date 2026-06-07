@@ -1,4 +1,4 @@
-use std::io::{stderr, Write};
+use std::io::Write;
 
 mod compiler;
 pub mod instruction;
@@ -148,6 +148,14 @@ impl<W: Write> VirtualMachine<W> {
                     let value = ctx.stack.last().cloned().unwrap();
                     ctx.stack[index as usize] = value;
                 },
+                Instruction::JumpIfFalse { offset: jump_offset } => {
+                    if ctx.peek_stack(0).map_or(true, |v| v.is_falsy()) {
+                        ctx.ip += jump_offset as usize;
+                    }
+                },
+                Instruction::Jump { offset: jump_offset } => {
+                    ctx.ip += jump_offset as usize;
+                },
             }
 
             ctx.ip += offset;
@@ -262,6 +270,12 @@ impl<W: Write> VirtualMachine<W> {
             Instruction::SetLocal { index } => {
                 let name = "OP_SET_LOCAL";
                 writeln!(self.writer, "{name:<16} {index:4}");
+            },
+            Instruction::JumpIfFalse { .. } => {
+                writeln!(self.writer, "OP_JUMP_IF_FALSE");
+            },
+            Instruction::Jump { .. } => {
+                writeln!(self.writer, "OP_JUMP");
             },
         }
     }

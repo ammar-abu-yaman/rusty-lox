@@ -126,8 +126,10 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     fn statement(&mut self) {
         use TokenType::Print;
-        if (self.match_current(Print)) {
+        if self.match_current(Print) {
             self.print_statement();
+        } else if self.match_current(TokenType::If) {
+            self.if_statement();
         } else {
             self.expression_statement();
         }
@@ -137,6 +139,24 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.expression();
         self.consume(TokenType::SemiColon, "Expected ';' after expression");
         self.write_bytes([OpCode::Print]);
+    }
+
+    fn if_statement(&mut self) {
+        self.consume(TokenType::LeftParen, "Expected '(' after 'if'");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expected ')' after condition");
+
+        let then_jump = self.emit_jump(OpCode::JumpIfFalse);
+        self.statement();
+        self.write_bytes([OpCode::Pop]);
+        let else_jump = self.emit_jump(OpCode::Jump);
+        self.patch_jump(then_jump);
+
+        if self.match_current(TokenType::Else) {
+            self.statement();
+            self.write_bytes([OpCode::Pop]);
+        }
+        self.patch_jump(else_jump);
     }
 
     fn expression_statement(&mut self) {
@@ -321,13 +341,28 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.write_bytes([OpCode::LoadConst as u8, const_index as u8]);
     }
 
+    fn emit_jump(&mut self, opcode: OpCode) -> usize {
+        self.write_bytes([opcode as u8, 0xff, 0xff]);
+        return self.chunk.code.len() - 2;
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        let jump = self.chunk.code.len() - offset - 2;
+        if jump > u16::MAX.into() {
+            self.error("Jump offset too large");
+        }
+        let jump = (jump as u16).to_be_bytes();
+        self.chunk.code[offset] = jump[0];
+        self.chunk.code[offset + 1] = jump[1];
+    }
+
     fn add_const(&mut self, value: Value) -> usize {
         self.chunk.constants.push(value);
         if self.chunk.constants.len() > u8::MAX.into() {
             self.error("Too many constants in chunk");
             return 0;
         }
-        self.chunk.constants.len() - 1
+        return self.chunk.constants.len() - 1;
     }
 
     fn add_local(&mut self, name: Token<'a>) {
