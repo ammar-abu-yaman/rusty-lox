@@ -26,6 +26,7 @@ pub enum OpCode {
     SetLocal,
     JumpIfFalse,
     Jump,
+    Loop,
 }
 
 impl From<OpCode> for u8 {
@@ -59,6 +60,7 @@ pub enum Instruction {
     SetLocal { index: u8 },
     JumpIfFalse { offset: u16 },
     Jump { offset: u16 },
+    Loop { offset: u16 },
 }
 
 impl Instruction {
@@ -119,6 +121,11 @@ impl Instruction {
                 let jump_offset = u16::from_be_bytes([iter.next()?, iter.next()?]);
                 offset += 2;
                 Instruction::Jump { offset: jump_offset }
+            },
+            OpCode::Loop => {
+                let jump_offset = u16::from_be_bytes([iter.next()?, iter.next()?]);
+                offset += 2;
+                Instruction::Loop { offset: jump_offset }
             },
         };
         Some((instruction, offset))

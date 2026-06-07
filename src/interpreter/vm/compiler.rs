@@ -65,10 +65,6 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     fn declaration(&mut self) {
         if self.match_current(TokenType::Var) {
             self.var_declaration();
-        } else if self.match_current(TokenType::LeftBrace) {
-            self.begin_scope();
-            self.block();
-            self.end_scope();
         } else {
             self.statement();
         }
@@ -107,13 +103,6 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         }
     }
 
-    fn block(&mut self) {
-        while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
-            self.declaration();
-        }
-        self.consume(TokenType::RightBrace, "Expected '}' after block");
-    }
-
     fn define_var(&mut self, global_var_index: u8) {
         if self.stack.depth > 0 {
             self.mark_initialized();
@@ -128,11 +117,24 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         use TokenType::Print;
         if self.match_current(Print) {
             self.print_statement();
+        } else if self.match_current(TokenType::LeftBrace) {
+            self.begin_scope();
+            self.block_statement();
+            self.end_scope();
         } else if self.match_current(TokenType::If) {
             self.if_statement();
+        } else if self.match_current(TokenType::While) {
+            self.while_statement();
         } else {
             self.expression_statement();
         }
+    }
+
+    fn block_statement(&mut self) {
+        while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
+            self.declaration();
+        }
+        self.consume(TokenType::RightBrace, "Expected '}' after block");
     }
 
     fn print_statement(&mut self) {
@@ -157,6 +159,21 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             self.write_bytes([OpCode::Pop]);
         }
         self.patch_jump(else_jump);
+    }
+
+    fn while_statement(&mut self) {
+        let loop_start = self.chunk.code.len();
+        self.consume(TokenType::LeftParen, "Expected '(' after 'while'");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expected ')' after condition");
+
+        let exit_jump = self.emit_jump(OpCode::JumpIfFalse);
+        self.write_bytes([OpCode::Pop]);
+        self.statement();
+        self.emit_loop(loop_start);
+
+        self.patch_jump(exit_jump);
+        self.write_bytes([OpCode::Pop]);
     }
 
     fn expression_statement(&mut self) {
@@ -209,6 +226,23 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             TokenType::LessEq => self.write_bytes([OpCode::Greater, OpCode::Not]),
             _ => unreachable!(""),
         }
+    }
+
+    fn and(&mut self, _can_assign: bool) {
+        let end_jump = self.emit_jump(OpCode::JumpIfFalse);
+        self.write_bytes([OpCode::Pop]);
+        self.parse_precedence(Precedence::And);
+        self.patch_jump(end_jump);
+    }
+
+    fn or(&mut self, _can_assign: bool) {
+        let else_jump = self.emit_jump(OpCode::JumpIfFalse);
+        let end_jump = self.emit_jump(OpCode::Jump);
+
+        self.patch_jump(else_jump);
+        self.parse_precedence(Precedence::Or);
+
+        self.patch_jump(end_jump);
     }
 
     fn literal(&mut self, _can_assign: bool) {
@@ -344,6 +378,19 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     fn emit_jump(&mut self, opcode: OpCode) -> usize {
         self.write_bytes([opcode as u8, 0xff, 0xff]);
         return self.chunk.code.len() - 2;
+    }
+
+    fn emit_pop(&mut self) {
+        self.write_bytes([OpCode::Pop as u8]);
+    }
+
+    fn emit_loop(&mut self, loop_start: usize) {
+        self.write_bytes([OpCode::Loop]);
+        let offset = self.chunk.code.len() - loop_start - 2;
+        if offset > u16::MAX.into() {
+            self.error("Jump offset too large");
+        }
+        self.write_bytes((offset as u16).to_be_bytes());
     }
 
     fn patch_jump(&mut self, offset: usize) {
@@ -493,44 +540,53 @@ impl<'a, W: std::io::Write> ParseRule<'a, W> {
         let number: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::number);
         let string: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::string);
         let variable: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::variable);
+        let and: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::and);
+        let or: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::or);
 
         match token_type {
             LeftParen => rule(grouping, None, Precedence::None),
+
+            Not => rule(unary, None, Precedence::None),
+
+            Plus => rule(None, binary, Precedence::Term),
+            Minus => rule(unary, binary, Precedence::Term),
+            Star => rule(None, binary, Precedence::Factor),
+            Div => rule(None, binary, Precedence::Factor),
+
             RightParen => rule(None, None, Precedence::None),
             LeftBrace => rule(None, None, Precedence::None),
             RightBrace => rule(None, None, Precedence::None),
             Comma => rule(None, None, Precedence::None),
             Dot => rule(None, None, Precedence::None),
-            Minus => rule(unary, binary, Precedence::Term),
-            Plus => rule(None, binary, Precedence::Term),
             SemiColon => rule(None, None, Precedence::None),
-            Div => rule(None, binary, Precedence::Factor),
-            Star => rule(None, binary, Precedence::Factor),
-            Not => rule(unary, None, Precedence::None),
             Asign => rule(None, None, Precedence::None),
+
             Equal => rule(None, binary, Precedence::Comparison),
             NotEqual => rule(None, binary, Precedence::Comparison),
             Greater => rule(None, binary, Precedence::Comparison),
             GreaterEq => rule(None, binary, Precedence::Comparison),
             Less => rule(None, binary, Precedence::Comparison),
             LessEq => rule(None, binary, Precedence::Comparison),
+
+            And => rule(None, and, Precedence::And),
+            Or => rule(None, or, Precedence::Or),
+
             Identifier => rule(variable, None, Precedence::None),
-            String => rule(string, None, Precedence::None),
             Number => rule(number, None, Precedence::None),
-            And => rule(None, None, Precedence::None),
-            Class => rule(None, None, Precedence::None),
-            Else => rule(None, None, Precedence::None),
+            String => rule(string, None, Precedence::None),
+            True => rule(literal, None, Precedence::None),
             False => rule(literal, None, Precedence::None),
+            Nil => rule(literal, None, Precedence::None),
+
+            If => rule(None, None, Precedence::None),
+            Else => rule(None, None, Precedence::None),
+            Class => rule(None, None, Precedence::None),
             For => rule(None, None, Precedence::None),
             Fun => rule(None, None, Precedence::None),
-            If => rule(None, None, Precedence::None),
-            Nil => rule(literal, None, Precedence::None),
-            Or => rule(None, None, Precedence::None),
             Print => rule(None, None, Precedence::None),
             Return => rule(None, None, Precedence::None),
             Super => rule(None, None, Precedence::None),
             This => rule(None, None, Precedence::None),
-            True => rule(literal, None, Precedence::None),
             Var => rule(None, None, Precedence::None),
             While => rule(None, None, Precedence::None),
             Error => rule(None, None, Precedence::None),

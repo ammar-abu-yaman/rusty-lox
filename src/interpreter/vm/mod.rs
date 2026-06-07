@@ -155,6 +155,9 @@ impl<W: Write> VirtualMachine<W> {
                 Instruction::Jump { offset: jump_offset } => {
                     ctx.ip += jump_offset as usize;
                 },
+                Instruction::Loop { offset: jump_offset } => {
+                    ctx.ip -= jump_offset as usize;
+                },
             }
 
             ctx.ip += offset;
@@ -211,79 +214,83 @@ impl<W: Write> VirtualMachine<W> {
         match instruction {
             Instruction::Return => {
                 writeln!(self.writer, "OP_RETURN");
-            }
+            },
             Instruction::Const { offset: const_offset } => {
                 let value = &chunk.constants[*const_offset as usize];
                 writeln!(self.writer, "{:<16} {:4} '{}'", "OP_CONSTANT", const_offset, value);
-            }
+            },
             Instruction::Negate => {
                 writeln!(self.writer, "OP_NEGATE");
-            }
+            },
             Instruction::Add => {
                 writeln!(self.writer, "OP_ADD");
-            }
+            },
             Instruction::Subtract => {
                 writeln!(self.writer, "OP_SUBTRACT");
-            }
+            },
             Instruction::Multiply => {
                 writeln!(self.writer, "OP_MULTIPLY");
-            }
+            },
             Instruction::Divide => {
                 writeln!(self.writer, "OP_DIVIDE");
-            }
+            },
             Instruction::LoadTrue => {
                 writeln!(self.writer, "OP_TRUE");
-            }
+            },
             Instruction::LoadFalse => {
                 writeln!(self.writer, "OP_FALSE");
-            }
+            },
             Instruction::LoadNil => {
                 writeln!(self.writer, "OP_NIL");
-            }
+            },
             Instruction::Not => {
                 writeln!(self.writer, "OP_NOT");
-            }
+            },
             Instruction::Equal => {
                 writeln!(self.writer, "OP_EQUAL");
-            }
+            },
             Instruction::Greater => {
                 writeln!(self.writer, "OP_GREATER");
-            }
+            },
             Instruction::Less => {
                 writeln!(self.writer, "OP_LESS");
-            }
+            },
             Instruction::Print => {
                 writeln!(self.writer, "OP_PRINT");
-            }
+            },
             Instruction::Pop => {
                 writeln!(self.writer, "OP_POP");
-            }
+            },
             Instruction::DefineGlobal { index } => {
                 let value = &chunk.constants[*index as usize];
                 writeln!(self.writer, "{:<16} {:4} '{}'", "OP_DEFINE_GLOBAL", index, value);
-            }
+            },
             Instruction::GetGlobal { index } => {
                 let value = &chunk.constants[*index as usize];
                 writeln!(self.writer, "{:<16} {:4} '{}'", "OP_GET_GLOBAL", index, value);
-            }
+            },
             Instruction::SetGlobal { index } => {
                 let value = &chunk.constants[*index as usize];
                 writeln!(self.writer, "{:<16} {:4} '{}'", "OP_SET_GLOBAL", index, value);
-            }
+            },
             Instruction::GetLocal { index } => {
                 writeln!(self.writer, "{:<16} {:4}", "OP_GET_LOCAL", index);
-            }
+            },
             Instruction::SetLocal { index } => {
                 writeln!(self.writer, "{:<16} {:4}", "OP_SET_LOCAL", index);
-            }
+            },
             Instruction::JumpIfFalse { offset: jump_offset } => {
                 let target = offset + consumed + *jump_offset as usize;
                 writeln!(self.writer, "{:<16} {:4} -> {:04}", "OP_JUMP_IF_FALSE", jump_offset, target);
-            }
+            },
             Instruction::Jump { offset: jump_offset } => {
                 let target = offset + consumed + *jump_offset as usize;
                 writeln!(self.writer, "{:<16} {:4} -> {:04}", "OP_JUMP", jump_offset, target);
-            }
+            },
+            Instruction::Loop { offset: jump_offset } => {
+                let target = offset + consumed + *jump_offset as usize;
+                writeln!(self.writer, "{:<16} {:4} -> {:04}", "OP_LOOP", jump_offset, target);
+            },
         }
     }
 }
@@ -337,9 +344,6 @@ mod tests {
     use super::*;
     use instruction::OpCode;
 
-    /// A helper function to run a manually constructed chunk through the VM in isolation.
-    /// It returns the InterpreterResult and the captured standard output/error as a String.
-    #[allow(dead_code)]
     fn run_chunk(chunk: Chunk) -> (InterpreterResult<()>, String) {
         let mut buffer = Vec::new();
         let result;
