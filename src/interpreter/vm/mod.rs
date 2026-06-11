@@ -61,6 +61,9 @@ impl<W: Write> VirtualMachine<W> {
             if self.debug {
                 self.disassemble(&ctx.chunk, &instruction, ctx.ip, offset);
             }
+
+            let current_ip = ctx.ip;
+            ctx.ip += offset;
             match instruction {
                 Instruction::Return => return Ok(()),
                 Instruction::Const { offset } => {
@@ -69,7 +72,7 @@ impl<W: Write> VirtualMachine<W> {
                 },
                 Instruction::Negate => {
                     if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) {
-                        self.runtime_err(&mut ctx, "Operand must be a number.");
+                        self.runtime_err(current_ip, &mut ctx, "Operand must be a number.");
                         return Err(InterpreterError::Runtime);
                     }
                     let value = ctx.stack.pop().unwrap().as_number();
@@ -78,17 +81,17 @@ impl<W: Write> VirtualMachine<W> {
                 },
                 Instruction::Add => {
                     if ctx.peek_stack(0).map_or(false, |a| a.is_number()) && ctx.peek_stack(1).map_or(false, |a| a.is_number()) {
-                        self.binary_math_op(&mut ctx, |a, b| a + b)?;
+                        self.binary_math_op(current_ip, &mut ctx, |a, b| a + b)?;
                     } else if ctx.peek_stack(0).map_or(false, |a| a.is_string_object()) && ctx.peek_stack(1).map_or(false, |a| a.is_string_object()) {
                         self.concatentate(&mut ctx);
                     } else {
-                        self.runtime_err(&mut ctx, "Operands must be numbers or strings.");
+                        self.runtime_err(current_ip, &mut ctx, "Operands must be numbers or strings.");
                         return Err(InterpreterError::Runtime);
                     }
                 },
-                Instruction::Subtract => self.binary_math_op(&mut ctx, |a, b| a - b)?,
-                Instruction::Multiply => self.binary_math_op(&mut ctx, |a, b| a * b)?,
-                Instruction::Divide => self.binary_math_op(&mut ctx, |a, b| a / b)?,
+                Instruction::Subtract => self.binary_math_op(current_ip, &mut ctx, |a, b| a - b)?,
+                Instruction::Multiply => self.binary_math_op(current_ip, &mut ctx, |a, b| a * b)?,
+                Instruction::Divide => self.binary_math_op(current_ip, &mut ctx, |a, b| a / b)?,
                 Instruction::LoadTrue => ctx.stack.push(Value::Bool(true)),
                 Instruction::LoadFalse => ctx.stack.push(Value::Bool(false)),
                 Instruction::LoadNil => ctx.stack.push(Value::Nil),
@@ -107,8 +110,8 @@ impl<W: Write> VirtualMachine<W> {
                         ctx.stack.push(Value::Bool(a == b));
                     }
                 },
-                Instruction::Greater => self.binary_cmp_op(&mut ctx, |a, b| a > b)?,
-                Instruction::Less => self.binary_cmp_op(&mut ctx, |a, b| a < b)?,
+                Instruction::Greater => self.binary_cmp_op(current_ip, &mut ctx, |a, b| a > b)?,
+                Instruction::Less => self.binary_cmp_op(current_ip, &mut ctx, |a, b| a < b)?,
                 Instruction::Print => {
                     let value = ctx.stack.pop().unwrap();
                     writeln!(self.writer, "{}", value);
@@ -127,7 +130,7 @@ impl<W: Write> VirtualMachine<W> {
                         ctx.stack.push(value);
                     } else {
                         let name_str = unsafe { name.as_ref_unchecked().str() };
-                        self.runtime_err(&mut ctx, &format!("Undefined global: {name_str}"));
+                        self.runtime_err(current_ip, &mut ctx, &format!("Undefined global: {name_str}"));
                         return Err(InterpreterError::Runtime);
                     }
                 },
@@ -135,7 +138,7 @@ impl<W: Write> VirtualMachine<W> {
                     let name = ctx.chunk.constants[index as usize].as_object_ptr();
                     if !self.mem.set_global(name, ctx.peek_stack(0).cloned().unwrap()) {
                         let name_str = unsafe { name.as_ref_unchecked().str() };
-                        self.runtime_err(&mut ctx, &format!("Undefined global: {name_str}"));
+                        self.runtime_err(current_ip, &mut ctx, &format!("Undefined global: {name_str}"));
                         return Err(InterpreterError::Runtime);
                     }
                 },
@@ -159,16 +162,14 @@ impl<W: Write> VirtualMachine<W> {
                     ctx.ip -= jump_offset as usize;
                 },
             }
-
-            ctx.ip += offset;
         }
         Ok(())
     }
 
     #[inline(always)]
-    fn binary_math_op(&mut self, ctx: &mut RunContext, op: fn(f64, f64) -> f64) -> InterpreterResult<()> {
+    fn binary_math_op(&mut self, ip: usize, ctx: &mut RunContext, op: fn(f64, f64) -> f64) -> InterpreterResult<()> {
         if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) || !matches!(ctx.peek_stack(1), Some(Value::Number(..))) {
-            self.runtime_err(ctx, "Operand must be a number.");
+            self.runtime_err(ip, ctx, "Operand must be a number.");
             return Err(InterpreterError::Runtime);
         }
 
@@ -189,9 +190,9 @@ impl<W: Write> VirtualMachine<W> {
     }
 
     #[inline(always)]
-    fn binary_cmp_op(&mut self, ctx: &mut RunContext, op: fn(f64, f64) -> bool) -> InterpreterResult<()> {
+    fn binary_cmp_op(&mut self, ip: usize, ctx: &mut RunContext, op: fn(f64, f64) -> bool) -> InterpreterResult<()> {
         if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) || !matches!(ctx.peek_stack(1), Some(Value::Number(..))) {
-            self.runtime_err(ctx, "Operand must be a number.");
+            self.runtime_err(ip, ctx, "Operand must be a number.");
             return Err(InterpreterError::Runtime);
         }
         let value2 = ctx.stack.pop().unwrap().as_number();
@@ -288,7 +289,7 @@ impl<W: Write> VirtualMachine<W> {
                 writeln!(self.writer, "{:<16} {:4} -> {:04}", "OP_JUMP", jump_offset, target);
             },
             Instruction::Loop { offset: jump_offset } => {
-                let target = offset + consumed + *jump_offset as usize;
+                let target = offset + consumed - *jump_offset as usize;
                 writeln!(self.writer, "{:<16} {:4} -> {:04}", "OP_LOOP", jump_offset, target);
             },
         }
@@ -296,8 +297,8 @@ impl<W: Write> VirtualMachine<W> {
 }
 
 impl<T: Write> VirtualMachine<T> {
-    fn runtime_err(&mut self, ctx: &mut RunContext, message: &str) {
-        let line = ctx.chunk.lines[ctx.ip];
+    fn runtime_err(&mut self, ip: usize, ctx: &mut RunContext, message: &str) {
+        let line = ctx.chunk.lines[ip];
         writeln!(self.writer, "{message}\n[line {line}] in script");
         unsafe { ctx.stack.set_len(0) };
     }

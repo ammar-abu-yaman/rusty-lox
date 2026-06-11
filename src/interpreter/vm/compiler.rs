@@ -125,6 +125,8 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             self.if_statement();
         } else if self.match_current(TokenType::While) {
             self.while_statement();
+        } else if self.match_current(TokenType::For) {
+            self.for_statement();
         } else {
             self.expression_statement();
         }
@@ -174,6 +176,47 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
         self.patch_jump(exit_jump);
         self.write_bytes([OpCode::Pop]);
+    }
+
+    fn for_statement(&mut self) {
+        self.begin_scope();
+        self.consume(TokenType::LeftParen, "Expected '(' after 'for'");
+        if self.match_current(TokenType::Var) {
+            self.var_declaration();
+        } else if self.match_current(TokenType::SemiColon) {
+            // empty initializer
+        } else {
+            self.expression_statement();
+        }
+
+        let mut loop_start = self.chunk.code.len();
+        let mut exit_jump = -1;
+        if !self.match_current(TokenType::SemiColon) {
+            self.expression();
+            self.consume(TokenType::SemiColon, "Expected ';' after loop condition");
+            exit_jump = self.emit_jump(OpCode::JumpIfFalse) as i32;
+            self.emit_pop();
+        }
+
+        if !self.match_current(TokenType::RightParen) {
+            let body_jump = self.emit_jump(OpCode::Jump);
+            let increment_start = self.chunk.code.len();
+            self.expression();
+            self.emit_pop();
+            self.consume(TokenType::RightParen, "Expect ')' after for clauses.");
+            self.emit_loop(loop_start);
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
+        }
+
+        self.statement();
+        self.emit_loop(loop_start);
+        if exit_jump != -1 {
+            self.patch_jump(exit_jump as usize);
+            self.emit_pop();
+        }
+
+        self.end_scope();
     }
 
     fn expression_statement(&mut self) {
@@ -386,7 +429,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
     fn emit_loop(&mut self, loop_start: usize) {
         self.write_bytes([OpCode::Loop]);
-        let offset = self.chunk.code.len() - loop_start - 2;
+        let offset = self.chunk.code.len() - loop_start + 2;
         if offset > u16::MAX.into() {
             self.error("Jump offset too large");
         }
