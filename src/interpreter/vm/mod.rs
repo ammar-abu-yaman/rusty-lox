@@ -129,7 +129,7 @@ impl<W: Write> VirtualMachine<W> {
                     if let Some(value) = self.mem.get_global(name) {
                         ctx.stack.push(value);
                     } else {
-                        let name_str = unsafe { name.as_ref_unchecked().str() };
+                        let name_str = unsafe { name.as_ref_unchecked().as_str() };
                         self.runtime_err(current_ip, &mut ctx, &format!("Undefined global: {name_str}"));
                         return Err(InterpreterError::Runtime);
                     }
@@ -137,7 +137,7 @@ impl<W: Write> VirtualMachine<W> {
                 Instruction::SetGlobal { index } => {
                     let name = ctx.chunk.constants[index as usize].as_object_ptr();
                     if !self.mem.set_global(name, ctx.peek_stack(0).cloned().unwrap()) {
-                        let name_str = unsafe { name.as_ref_unchecked().str() };
+                        let name_str = unsafe { name.as_ref_unchecked().as_str() };
                         self.runtime_err(current_ip, &mut ctx, &format!("Undefined global: {name_str}"));
                         return Err(InterpreterError::Runtime);
                     }
@@ -183,8 +183,8 @@ impl<W: Write> VirtualMachine<W> {
     fn concatentate(&mut self, ctx: &mut RunContext) {
         let value2 = ctx.stack.pop().unwrap();
         let value1 = ctx.stack.pop().unwrap();
-        let str1 = value1.as_object().str();
-        let str2 = value2.as_object().str();
+        let str1 = value1.as_object().as_str();
+        let str2 = value2.as_object().as_str();
         let result = Value::Object(self.mem.allocate_string(str1.to_owned() + str2));
         ctx.stack.push(result);
     }
@@ -324,6 +324,7 @@ impl RunContext {
     }
 }
 
+#[derive(Debug, Clone, Default)]
 pub struct Chunk {
     pub code: Vec<u8>,
     pub lines: Vec<u32>,

@@ -1,52 +1,87 @@
 use std::{fmt::Display, panic};
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Object {
-    String { value: String, next: *mut Object },
+use crate::interpreter::vm::Chunk;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Object {
+    pub next: *mut Object,
+    pub data: ObjectData,
 }
 
-impl<T: Into<String>> From<T> for Object {
-    fn from(value: T) -> Self {
-        Self::String {
-            value: value.into(),
+#[derive(Debug, Clone)]
+pub enum ObjectData {
+    String(String),
+    Function(ObjFunction),
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjFunction {
+    pub arity: usize,
+    pub name: *mut Object,
+    pub chunk: Chunk,
+}
+
+impl Object {
+    pub fn string(value: impl Into<String>) -> Self {
+        Self {
             next: std::ptr::null_mut(),
+            data: ObjectData::String(value.into()),
+        }
+    }
+
+    pub fn function(arity: usize, name: *mut Object) -> Self {
+        Self {
+            next: std::ptr::null_mut(),
+            data: ObjectData::Function(ObjFunction {
+                arity,
+                name,
+                chunk: Chunk::default(),
+            }),
         }
     }
 }
 
 impl Object {
-    pub fn next(&self) -> Option<&mut Object> {
-        use Object::*;
-        match self {
-            String { next, .. } => unsafe { next.as_mut() },
-        }
-    }
-
-    pub fn set_next(&mut self, next_ptr: *mut Object) {
-        use Object::*;
-        match self {
-            String { next, .. } => *next = next_ptr,
-        }
-    }
-
-    pub fn str(&self) -> &str {
-        use Object::*;
-        match self {
-            String { value, .. } => &value,
+    pub fn as_str(&self) -> &str {
+        match &self.data {
+            ObjectData::String(value) => &value,
             _ => panic!("Expected a string, got {:?}", self),
         }
     }
 
+    pub fn as_function(&self) -> &ObjFunction {
+        match &self.data {
+            ObjectData::Function(fun) => fun,
+            _ => panic!("Expected a function, got {:?}", self),
+        }
+    }
+
     pub fn is_string(&self) -> bool {
-        matches!(self, Object::String { .. })
+        matches!(self.data, ObjectData::String { .. })
+    }
+
+    pub fn is_function(&self) -> bool {
+        matches!(self.data, ObjectData::Function { .. })
     }
 }
 
 impl Display for Object {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        use Object::*;
-        match self {
-            String { value, .. } => write!(f, "{}", value),
+        match &self.data {
+            ObjectData::String(value) => write!(f, "{}", value),
+            ObjectData::Function(fun) => unsafe { write!(f, "<fn {}>", fun.name.as_ref_unchecked().as_str()) },
         }
     }
 }
+
+impl PartialEq for ObjectData {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ObjectData::String(a), ObjectData::String(b)) => a == b,
+            (ObjectData::Function(a), ObjectData::Function(b)) => a.name == b.name,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ObjectData {}

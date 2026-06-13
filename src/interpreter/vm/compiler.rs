@@ -1072,7 +1072,7 @@ mod tests {
         assert!(has_error);
 
         // Check if "synchronized" string constant was still added (meaning it reached the second statement)
-        let has_synchronized = chunk.constants.iter().any(|v| v.is_string_object() && v.as_object().str() == "synchronized");
+        let has_synchronized = chunk.constants.iter().any(|v| v.is_string_object() && v.as_object().as_str() == "synchronized");
         assert!(has_synchronized, "Compiler failed to synchronize and parse subsequent statements");
     }
 

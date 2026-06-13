@@ -24,28 +24,28 @@ impl MemoryManager {
             return *ptr;
         }
         let ptr = self.allocate_string(string);
-        self.strings.insert(unsafe { StrPtr(ptr.as_ref_unchecked().str() as *const str) }, ptr);
+        self.strings.insert(unsafe { StrPtr(ptr.as_ref_unchecked().as_str() as *const str) }, ptr);
         ptr
     }
 
     pub fn allocate_string(&mut self, string: impl Into<String>) -> *mut Object {
-        let object = Object::from(string);
+        let object = Object::string(string);
         let ptr = unsafe { self.allocate_object(object) };
         ptr
     }
 
     pub fn define_global(&mut self, key: *mut Object, value: Value) {
-        let name = unsafe { StrPtr(key.as_ref_unchecked().str() as *const str) };
+        let name = unsafe { StrPtr(key.as_ref_unchecked().as_str() as *const str) };
         self.globals.insert(name, value);
     }
 
     pub fn get_global(&self, key: *mut Object) -> Option<Value> {
-        let name = unsafe { StrPtr(key.as_ref_unchecked().str() as *const str) };
+        let name = unsafe { StrPtr(key.as_ref_unchecked().as_str() as *const str) };
         return self.globals.get(&name).copied();
     }
 
     pub fn set_global(&mut self, key: *mut Object, value: Value) -> bool {
-        let name = unsafe { StrPtr(key.as_ref_unchecked().str() as *const str) };
+        let name = unsafe { StrPtr(key.as_ref_unchecked().as_str() as *const str) };
         if !self.globals.contains_key(&name) {
             return false;
         }
@@ -54,12 +54,30 @@ impl MemoryManager {
     }
 
     pub unsafe fn allocate_object(&mut self, mut object: Object) -> *mut Object {
-        object.set_next(self.objects);
+        object.next = self.objects;
         let ptr = Box::into_raw(Box::new(object));
         self.objects = ptr;
         ptr
     }
 }
+
+struct StrPtr(*const str);
+
+impl Hash for StrPtr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        unsafe {
+            self.0.as_ref_unchecked().hash(state);
+        }
+    }
+}
+
+impl PartialEq for StrPtr {
+    fn eq(&self, other: &Self) -> bool {
+        unsafe { self.0.as_ref() == other.0.as_ref() }
+    }
+}
+
+impl Eq for StrPtr {}
 
 impl Drop for MemoryManager {
     fn drop(&mut self) {
@@ -68,12 +86,9 @@ impl Drop for MemoryManager {
         let mut curr = self.objects;
         unsafe {
             while !curr.is_null() {
-                let next = (*curr).next();
+                let next = (*curr).next;
                 drop(Box::from_raw(curr));
-                curr = match next {
-                    Some(obj) => obj,
-                    None => std::ptr::null_mut(),
-                }
+                curr = next;
             }
         }
     }
@@ -120,9 +135,9 @@ mod tests {
 
         assert_eq!(mm.objects, p3);
         unsafe {
-            assert_eq!((*p3).next().map(|o| o as *mut Object), Some(p2));
-            assert_eq!((*p2).next().map(|o| o as *mut Object), Some(p1));
-            assert_eq!((*p1).next().map(|o| o as *mut Object), None);
+            assert_eq!((*p3).next, p2);
+            assert_eq!((*p2).next, p1);
+            assert!((*p1).next.is_null());
         }
     }
 
@@ -138,43 +153,27 @@ mod tests {
     }
 
     #[test]
-    fn test_set_global_bug_confirmation() {
+    fn test_set_global_success() {
         let mut mm = MemoryManager::new();
 
         let key = mm.intern_string("a");
         let val1 = Value::Number(1.0);
         let val2 = Value::Number(2.0);
 
-        // Current bug: returns false if NOT found, but it should return false if NOT found
-        // Wait, the report said: "returns false if the variable already exists"
-        // Let's check the code:
-        // if self.globals.contains_key(&name) { return false; }
-        // This means if it DOES exist, it returns false.
-        // In Lox, set_global should fail (return false) if it DOES NOT exist.
-
         mm.define_global(key, val1);
         let result = mm.set_global(key, val2);
 
-        // This will currently return false because it already exists
-        assert_eq!(result, false, "Current implementation incorrectly fails if variable exists");
-        assert_eq!(mm.get_global(key), Some(val1), "Value should not have changed due to bug");
+        assert_eq!(result, true, "Should succeed when variable exists");
+        assert_eq!(mm.get_global(key), Some(val2), "Value should have been updated");
+    }
+
+    #[test]
+    fn test_set_global_failure_if_not_exists() {
+        let mut mm = MemoryManager::new();
+        let key = mm.intern_string("a");
+        let val = Value::Number(1.0);
+
+        let result = mm.set_global(key, val);
+        assert_eq!(result, false, "Should fail if variable has not been defined");
     }
 }
-
-struct StrPtr(*const str);
-
-impl Hash for StrPtr {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        unsafe {
-            self.0.as_ref_unchecked().hash(state);
-        }
-    }
-}
-
-impl PartialEq for StrPtr {
-    fn eq(&self, other: &Self) -> bool {
-        unsafe { self.0.as_ref() == other.0.as_ref() }
-    }
-}
-
-impl Eq for StrPtr {}
