@@ -1,4 +1,6 @@
 use super::instruction::OpCode;
+use super::object::ObjFunction;
+use crate::interpreter::vm::object::Object;
 use crate::token::TokenType;
 
 use super::log::Logger;
@@ -24,28 +26,39 @@ struct Stack<'a> {
     depth: i32,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum BodyType {
+    Function,
+    Script,
+}
+
 pub struct ByteCodeCompiler<'a, W: std::io::Write> {
     scanner: &'a Scanner,
     pub has_error: bool,
     pub panic_mode: bool,
     logger: &'a mut Logger<W>,
-    chunk: &'a mut Chunk,
     mem: &'a mut MemoryManager,
-    stack: Stack<'a>,
     previous: Option<Token<'a>>,
     current: Option<Token<'a>>,
+    contexts: Vec<CompilationContext<'a>>,
 }
 
 impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
-    pub fn new(scanner: &'a Scanner, logger: &'a mut Logger<W>, chunk: &'a mut Chunk, mem: &'a mut MemoryManager) -> Self {
+    pub fn new(scanner: &'a Scanner, logger: &'a mut Logger<W>, mem: &'a mut MemoryManager) -> Self {
+        let empty_string = mem.intern_string("");
+        let mut main_context = CompilationContext {
+            body_type: BodyType::Script,
+            function: unsafe { mem.allocate_object(Object::function(0, empty_string)) },
+            stack: Stack::default(),
+        };
+
         Self {
             scanner,
             logger,
-            chunk,
             mem,
             has_error: false,
             panic_mode: false,
-            stack: Stack::default(),
+            contexts: vec![main_context],
             previous: None,
             current: None,
         }
@@ -65,6 +78,8 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     fn declaration(&mut self) {
         if self.match_current(TokenType::Var) {
             self.var_declaration();
+        } else if self.match_current(TokenType::Fun) {
+            self.function_declaration();
         } else {
             self.statement();
         }
@@ -87,6 +102,13 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.define_var(global_var_index);
     }
 
+    fn function_declaration(&mut self) {
+        let function_name_var = self.parse_var("Expected function name");
+        self.mark_initialized();
+        self.function(BodyType::Function);
+        self.define_var(function_name_var as u8);
+    }
+
     fn synchronize(&mut self) {
         self.panic_mode = false;
         while !self.check(TokenType::Eof) && self.current.is_some() {
@@ -103,8 +125,44 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         }
     }
 
+    fn function(&mut self, body_type: BodyType) {
+        let function_name = self.mem.intern_string(self.previous.as_ref().unwrap().lexeme);
+        let function = self.mem.allocate_function(function_name, 0);
+        let function_context = CompilationContext::new(body_type, function);
+        self.contexts.push(function_context);
+
+        self.begin_scope();
+
+        let mut arity = 0usize;
+        self.consume(TokenType::LeftParen, "Expected '(' after function name");
+        if !self.check(TokenType::RightParen) {
+            loop {
+                arity += 1;
+                if arity > u8::MAX.into() {
+                    self.error_at(&self.current.clone().unwrap(), "Can't have more than 255 parameters.");
+                }
+                let constant = self.parse_var("Expect parameter name.");
+                self.define_var(constant);
+                self.match_current(TokenType::Comma);
+                if self.check(TokenType::RightParen) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenType::RightParen, "Expected ')' after function parameters");
+        unsafe {
+            self.context_mut().function.as_mut_unchecked().as_function_mut().arity = arity;
+        }
+
+        self.consume(TokenType::LeftBrace, "Expected '{' before function body");
+        self.block_statement();
+
+        let function = self.end_compilation();
+        self.emit_const(Value::Object(function));
+    }
+
     fn define_var(&mut self, global_var_index: u8) {
-        if self.stack.depth > 0 {
+        if self.stack().depth > 0 {
             self.mark_initialized();
             return;
         }
@@ -127,6 +185,8 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             self.while_statement();
         } else if self.match_current(TokenType::For) {
             self.for_statement();
+        } else if self.match_current(TokenType::Return) {
+            self.return_statement();
         } else {
             self.expression_statement();
         }
@@ -151,31 +211,31 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.consume(TokenType::RightParen, "Expected ')' after condition");
 
         let then_jump = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_pop();
         self.statement();
-        self.write_bytes([OpCode::Pop]);
         let else_jump = self.emit_jump(OpCode::Jump);
         self.patch_jump(then_jump);
+        self.emit_pop();
 
         if self.match_current(TokenType::Else) {
             self.statement();
-            self.write_bytes([OpCode::Pop]);
         }
         self.patch_jump(else_jump);
     }
 
     fn while_statement(&mut self) {
-        let loop_start = self.chunk.code.len();
+        let loop_start = self.chunk().code.len();
         self.consume(TokenType::LeftParen, "Expected '(' after 'while'");
         self.expression();
         self.consume(TokenType::RightParen, "Expected ')' after condition");
 
         let exit_jump = self.emit_jump(OpCode::JumpIfFalse);
-        self.write_bytes([OpCode::Pop]);
+        self.emit_pop();
         self.statement();
         self.emit_loop(loop_start);
 
         self.patch_jump(exit_jump);
-        self.write_bytes([OpCode::Pop]);
+        self.emit_pop();
     }
 
     fn for_statement(&mut self) {
@@ -189,7 +249,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             self.expression_statement();
         }
 
-        let mut loop_start = self.chunk.code.len();
+        let mut loop_start = self.chunk().code.len();
         let mut exit_jump = -1;
         if !self.match_current(TokenType::SemiColon) {
             self.expression();
@@ -200,7 +260,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
         if !self.match_current(TokenType::RightParen) {
             let body_jump = self.emit_jump(OpCode::Jump);
-            let increment_start = self.chunk.code.len();
+            let increment_start = self.chunk().code.len();
             self.expression();
             self.emit_pop();
             self.consume(TokenType::RightParen, "Expect ')' after for clauses.");
@@ -219,10 +279,23 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.end_scope();
     }
 
+    fn return_statement(&mut self) {
+        if self.context().body_type == BodyType::Script {
+            self.error("Can't return from top-level code.");
+        }
+        if self.match_current(TokenType::SemiColon) {
+            self.emit_return();
+        } else {
+            self.expression();
+            self.consume(TokenType::SemiColon, "Expected ';' after expression");
+            self.write_bytes([OpCode::Return]);
+        }
+    }
+
     fn expression_statement(&mut self) {
         self.expression();
         self.consume(TokenType::SemiColon, "Expected ';' after expression");
-        self.write_bytes([OpCode::Pop]);
+        self.emit_pop();
     }
 }
 
@@ -273,7 +346,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
     fn and(&mut self, _can_assign: bool) {
         let end_jump = self.emit_jump(OpCode::JumpIfFalse);
-        self.write_bytes([OpCode::Pop]);
+        self.emit_pop();
         self.parse_precedence(Precedence::And);
         self.patch_jump(end_jump);
     }
@@ -283,8 +356,9 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         let end_jump = self.emit_jump(OpCode::Jump);
 
         self.patch_jump(else_jump);
-        self.parse_precedence(Precedence::Or);
+        self.emit_pop();
 
+        self.parse_precedence(Precedence::Or);
         self.patch_jump(end_jump);
     }
 
@@ -306,6 +380,11 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
     fn variable(&mut self, can_assign: bool) {
         self.named_var(self.previous.clone().unwrap(), can_assign);
+    }
+
+    fn call(&mut self, _can_assign: bool) {
+        let arg_count = self.args_list();
+        self.write_bytes([OpCode::Call as u8, arg_count]);
     }
 
     fn parse_precedence(&mut self, precedence: Precedence) {
@@ -333,7 +412,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     fn parse_var(&mut self, message: impl AsRef<str>) -> u8 {
         self.consume(TokenType::Identifier, message.as_ref());
         self.declare_var();
-        if self.stack.depth > 0 {
+        if self.stack().depth > 0 {
             return 0;
         }
         return self.identifier_const(self.previous.clone().as_ref().unwrap());
@@ -359,14 +438,14 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     }
 
     fn declare_var(&mut self) {
-        if self.stack.depth == 0 {
+        if self.stack().depth == 0 {
             return;
         }
         let name = self.previous.clone().unwrap();
 
-        for i in (0..self.stack.locals.len()).rev() {
-            let local = &self.stack.locals[i];
-            if local.depth != -1 && local.depth < self.stack.depth as i32 {
+        for i in (0..self.stack().locals.len()).rev() {
+            let local = &self.stack().locals[i];
+            if local.depth != -1 && local.depth < self.stack().depth as i32 {
                 break;
             }
             if name.lexeme == local.token.lexeme {
@@ -376,6 +455,28 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         }
 
         self.add_local(name);
+    }
+
+    fn args_list(&mut self) -> u8 {
+        let mut arg_count = 0;
+        if !self.check(TokenType::RightParen) {
+            loop {
+                self.expression();
+                if arg_count == 255 {
+                    self.error("Can't have more than 255 arguments.");
+                }
+                arg_count += 1;
+                if !self.match_current(TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenType::RightParen, "Expect ')' after arguments.");
+        return arg_count;
+    }
+
+    fn emit_return(&mut self) {
+        self.write_bytes([OpCode::LoadNil, OpCode::Return]);
     }
 }
 
@@ -420,7 +521,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
     fn emit_jump(&mut self, opcode: OpCode) -> usize {
         self.write_bytes([opcode as u8, 0xff, 0xff]);
-        return self.chunk.code.len() - 2;
+        return self.chunk().code.len() - 2;
     }
 
     fn emit_pop(&mut self) {
@@ -429,7 +530,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
     fn emit_loop(&mut self, loop_start: usize) {
         self.write_bytes([OpCode::Loop]);
-        let offset = self.chunk.code.len() - loop_start + 2;
+        let offset = self.chunk().code.len() - loop_start + 2;
         if offset > u16::MAX.into() {
             self.error("Jump offset too large");
         }
@@ -437,41 +538,45 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     }
 
     fn patch_jump(&mut self, offset: usize) {
-        let jump = self.chunk.code.len() - offset - 2;
+        let jump = self.chunk().code.len() - offset - 2;
         if jump > u16::MAX.into() {
             self.error("Jump offset too large");
         }
         let jump = (jump as u16).to_be_bytes();
-        self.chunk.code[offset] = jump[0];
-        self.chunk.code[offset + 1] = jump[1];
+        self.chunk_mut().code[offset] = jump[0];
+        self.chunk_mut().code[offset + 1] = jump[1];
     }
 
     fn add_const(&mut self, value: Value) -> usize {
-        self.chunk.constants.push(value);
-        if self.chunk.constants.len() > u8::MAX.into() {
+        self.chunk_mut().constants.push(value);
+        if self.chunk().constants.len() > u8::MAX.into() {
             self.error("Too many constants in chunk");
             return 0;
         }
-        return self.chunk.constants.len() - 1;
+        return self.chunk().constants.len() - 1;
     }
 
     fn add_local(&mut self, name: Token<'a>) {
-        if self.stack.locals.len() >= u8::MAX.into() {
+        if self.stack().locals.len() >= u8::MAX.into() {
             self.error("Too many local variables in function");
             return;
         }
         let local = Local { token: name, depth: -1 };
-        self.stack.locals.push(local);
+        self.stack_mut().locals.push(local);
     }
 
     fn mark_initialized(&mut self) {
-        if let Some(local) = self.stack.locals.last_mut() {
-            local.depth = self.stack.depth;
+        if self.stack().depth == 0 {
+            return;
+        }
+        let depth = self.stack().depth;
+        if let Some(local) = self.stack_mut().locals.last_mut() {
+            local.depth = depth;
         }
     }
 
     fn resolve_local(&mut self, name: &str) -> Option<usize> {
-        for (i, local) in self.stack.locals.iter().enumerate().rev() {
+        for (i, local) in self.stack().locals.iter().enumerate().rev() {
             if local.token.lexeme == name {
                 if local.depth == -1 {
                     self.error("Can't read local variable in its own initializer.");
@@ -482,11 +587,40 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         None
     }
 
+    fn context(&self) -> &CompilationContext<'a> {
+        self.contexts.last().unwrap()
+    }
+
+    fn context_mut(&mut self) -> &mut CompilationContext<'a> {
+        self.contexts.last_mut().unwrap()
+    }
+
+    fn chunk(&self) -> &Chunk {
+        unsafe { &self.context().function.as_ref_unchecked().as_function().chunk }
+    }
+
+    fn chunk_mut(&mut self) -> &mut Chunk {
+        unsafe { &mut self.context_mut().function.as_mut_unchecked().as_function_mut().chunk }
+    }
+
+    fn stack(&self) -> &Stack<'a> {
+        &self.context().stack
+    }
+
+    fn stack_mut(&mut self) -> &mut Stack<'a> {
+        &mut self.context_mut().stack
+    }
+
+    pub fn end_compilation(&mut self) -> *mut Object {
+        self.emit_return();
+        self.contexts.pop().unwrap().function
+    }
+
     fn write_bytes<const N: usize, T: Into<u8>>(&mut self, bytes: [T; N]) {
         let line = self.previous.as_ref().unwrap().pos.line as u32;
         for byte in bytes {
-            self.chunk.code.push(byte.into());
-            self.chunk.lines.push(line);
+            self.chunk_mut().code.push(byte.into());
+            self.chunk_mut().lines.push(line);
         }
     }
 
@@ -497,14 +631,14 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
 impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     fn begin_scope(&mut self) {
-        self.stack.depth += 1;
+        self.stack_mut().depth += 1;
     }
 
     fn end_scope(&mut self) {
-        self.stack.depth -= 1;
-        while !self.stack.locals.is_empty() && self.stack.locals.last().unwrap().depth > self.stack.depth {
-            self.stack.locals.pop();
-            self.write_bytes([OpCode::Pop]);
+        self.stack_mut().depth -= 1;
+        while !self.stack().locals.is_empty() && self.stack().locals.last().unwrap().depth > self.stack().depth {
+            self.stack_mut().locals.pop();
+            self.emit_pop();
         }
     }
 }
@@ -585,9 +719,10 @@ impl<'a, W: std::io::Write> ParseRule<'a, W> {
         let variable: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::variable);
         let and: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::and);
         let or: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::or);
+        let call: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::call);
 
         match token_type {
-            LeftParen => rule(grouping, None, Precedence::None),
+            LeftParen => rule(grouping, call, Precedence::Call),
 
             Not => rule(unary, None, Precedence::None),
 
@@ -635,6 +770,27 @@ impl<'a, W: std::io::Write> ParseRule<'a, W> {
             Error => rule(None, None, Precedence::None),
             Eof => rule(None, None, Precedence::None),
         }
+    }
+}
+
+struct CompilationContext<'a> {
+    body_type: BodyType,
+    function: *mut Object,
+    stack: Stack<'a>,
+}
+
+impl<'a> CompilationContext<'a> {
+    fn new(body_type: BodyType, function: *mut Object) -> Self {
+        let mut context = Self {
+            body_type,
+            function,
+            stack: Stack::default(),
+        };
+        context.stack.locals.push(Local {
+            token: Token::textual("", 0, 0),
+            depth: 0,
+        });
+        context
     }
 }
 
@@ -1056,18 +1212,21 @@ mod tests {
         "#;
 
         let mut buffer = Vec::new();
-        let mut chunk = Chunk::new();
         let has_error;
         let scanner = Scanner::new(source);
         let mut logger = Logger::new(&mut buffer);
         let mut heap = MemoryManager::new();
-        {
-            let mut compiler = ByteCodeCompiler::new(&scanner, &mut logger, &mut chunk, &mut heap);
+
+        let main_function = {
+            let mut compiler = ByteCodeCompiler::new(&scanner, &mut logger, &mut heap);
 
             compiler.compile();
             compiler.write_end();
             has_error = compiler.has_error;
-        }
+            compiler.end_compilation()
+        };
+
+        let chunk = unsafe { &main_function.as_ref_unchecked().as_function().chunk };
 
         assert!(has_error);
 
@@ -1081,10 +1240,9 @@ mod tests {
         let has_error;
         {
             let scanner = Scanner::new(source);
-            let mut chunk = Chunk::new();
             let mut logger = Logger::new(&mut buffer);
             let mut heap = MemoryManager::new();
-            let mut compiler = ByteCodeCompiler::new(&scanner, &mut logger, &mut chunk, &mut heap);
+            let mut compiler = ByteCodeCompiler::new(&scanner, &mut logger, &mut heap);
 
             compiler.compile();
             has_error = compiler.has_error;
@@ -1102,13 +1260,15 @@ mod tests {
 
     fn assert_compile(source: &str, expected: Vec<(Instruction, u32)>) {
         let scanner = Scanner::new(source);
-        let mut chunk = Chunk::new();
         let mut logger = Logger::new(std::io::stderr());
         let mut heap = MemoryManager::new();
-        let mut compiler = ByteCodeCompiler::new(&scanner, &mut logger, &mut chunk, &mut heap);
+        let mut compiler = ByteCodeCompiler::new(&scanner, &mut logger, &mut heap);
 
         compiler.compile();
         compiler.write_end();
+
+        let main_function = compiler.end_compilation();
+        let chunk = unsafe { &main_function.as_ref_unchecked().as_function().chunk };
 
         assert!(!compiler.has_error, "Compilation failed with errors");
 
@@ -1126,10 +1286,9 @@ mod tests {
 
     fn assert_compile_program(source: &str, expected: Vec<(Instruction, u32)>) {
         let scanner = Scanner::new(source);
-        let mut chunk = Chunk::new();
         let mut logger = Logger::new(std::io::stderr());
         let mut heap = MemoryManager::new();
-        let mut compiler = ByteCodeCompiler::new(&scanner, &mut logger, &mut chunk, &mut heap);
+        let mut compiler = ByteCodeCompiler::new(&scanner, &mut logger, &mut heap);
 
         // We use a custom compile loop here to test programs until the main compile() is updated
         compiler.advance();
@@ -1138,6 +1297,8 @@ mod tests {
         }
         compiler.write_end();
 
+        let main_function = compiler.end_compilation();
+        let chunk = unsafe { &main_function.as_ref_unchecked().as_function().chunk };
         assert!(!compiler.has_error, "Compilation failed with errors");
 
         std::mem::drop(compiler);

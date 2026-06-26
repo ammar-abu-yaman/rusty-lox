@@ -1,3 +1,5 @@
+use crate::interpreter::vm::object::NativeFunction;
+
 use super::object::Object;
 use super::value::Value;
 use std::{collections::HashMap, hash::Hash};
@@ -32,6 +34,16 @@ impl MemoryManager {
         let object = Object::string(string);
         let ptr = unsafe { self.allocate_object(object) };
         ptr
+    }
+
+    pub fn allocate_function(&mut self, name: *mut Object, arity: usize) -> *mut Object {
+        let object = Object::function(arity, name);
+        let ptr = unsafe { self.allocate_object(object) };
+        ptr
+    }
+
+    pub fn allocate_native_function(&mut self, native_fn: NativeFunction) -> *mut Object {
+        return unsafe { self.allocate_object(Object::native(native_fn)) };
     }
 
     pub fn define_global(&mut self, key: *mut Object, value: Value) {

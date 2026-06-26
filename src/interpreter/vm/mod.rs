@@ -11,12 +11,18 @@ pub mod value;
 use arrayvec::ArrayVec;
 use instruction::Instruction;
 use mem::MemoryManager;
+use object::{native_clock, NativeFunction};
 use result::{InterpreterError, InterpreterResult};
 use value::Value;
 
-use crate::scanner::Scanner;
+use crate::{
+    interpreter::vm::object::{Object, ObjectData},
+    scanner::Scanner,
+};
 
-pub(self) const STACK_SIZE: usize = 256;
+pub(self) const MAX_FRAMES: usize = 64;
+pub(self) const STACK_SIZE: usize = (u8::MAX as usize + 1);
+pub(self) const MAX_STACK: usize = MAX_FRAMES * STACK_SIZE;
 
 pub struct VirtualMachine<W: Write> {
     debug: bool,
@@ -35,9 +41,8 @@ impl<W: Write> VirtualMachine<W> {
 
     pub fn interpret(&mut self, source: &str) -> InterpreterResult<()> {
         let scanner = Scanner::new(source);
-        let mut chunk = Chunk::new();
         let mut logger = log::Logger::new(&mut self.writer);
-        let mut compiler = compiler::ByteCodeCompiler::new(&scanner, &mut logger, &mut chunk, &mut self.mem);
+        let mut compiler = compiler::ByteCodeCompiler::new(&scanner, &mut logger, &mut self.mem);
 
         compiler.compile();
         compiler.write_end();
@@ -45,34 +50,46 @@ impl<W: Write> VirtualMachine<W> {
             return InterpreterResult::Err(InterpreterError::Compile);
         }
 
+        let function = compiler.end_compilation();
         std::mem::drop(compiler);
-        self.run(chunk)?;
+        self.run(function)?;
         Ok(())
     }
 
-    pub fn run(&mut self, chunk: Chunk) -> InterpreterResult<()> {
-        let mut ctx = RunContext::new(chunk);
+    pub fn run(&mut self, function: *mut Object) -> InterpreterResult<()> {
+        let mut ctx = RunContext::new();
+        self.define_native(&mut ctx, "clock", native_clock);
+
+        ctx.frames.push(CallFrame {
+            function,
+            ip: 0,
+            slots_offest: ctx.stack.len(),
+        });
+        ctx.stack.push(Value::Object(function));
+
         loop {
-            let instruction_result = Instruction::from_bytes_iter(&mut ctx.chunk.code.iter().skip(ctx.ip).copied());
+            let instruction_result = {
+                let ip = ctx.frame().ip;
+                Instruction::from_bytes_iter(&mut ctx.frame_mut().chunk_mut().code.iter().skip(ip).copied())
+            };
+
             if instruction_result.is_none() {
                 break;
             }
             let (instruction, offset) = instruction_result.unwrap();
             if self.debug {
-                self.disassemble(&ctx.chunk, &instruction, ctx.ip, offset);
+                self.disassemble(&ctx.frame().chunk(), &instruction, ctx.frame().ip, offset);
             }
 
-            let current_ip = ctx.ip;
-            ctx.ip += offset;
+            ctx.frame_mut().ip += offset;
             match instruction {
-                Instruction::Return => return Ok(()),
                 Instruction::Const { offset } => {
-                    let value = ctx.chunk.constants[offset as usize].clone();
+                    let value = ctx.frame().chunk().constants[offset as usize].clone();
                     ctx.stack.push(value);
                 },
                 Instruction::Negate => {
                     if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) {
-                        self.runtime_err(current_ip, &mut ctx, "Operand must be a number.");
+                        self.runtime_err(&mut ctx, "Operand must be a number.");
                         return Err(InterpreterError::Runtime);
                     }
                     let value = ctx.stack.pop().unwrap().as_number();
@@ -81,17 +98,17 @@ impl<W: Write> VirtualMachine<W> {
                 },
                 Instruction::Add => {
                     if ctx.peek_stack(0).map_or(false, |a| a.is_number()) && ctx.peek_stack(1).map_or(false, |a| a.is_number()) {
-                        self.binary_math_op(current_ip, &mut ctx, |a, b| a + b)?;
+                        self.binary_math_op(&mut ctx, |a, b| a + b)?;
                     } else if ctx.peek_stack(0).map_or(false, |a| a.is_string_object()) && ctx.peek_stack(1).map_or(false, |a| a.is_string_object()) {
                         self.concatentate(&mut ctx);
                     } else {
-                        self.runtime_err(current_ip, &mut ctx, "Operands must be numbers or strings.");
+                        self.runtime_err(&mut ctx, "Operands must be numbers or strings.");
                         return Err(InterpreterError::Runtime);
                     }
                 },
-                Instruction::Subtract => self.binary_math_op(current_ip, &mut ctx, |a, b| a - b)?,
-                Instruction::Multiply => self.binary_math_op(current_ip, &mut ctx, |a, b| a * b)?,
-                Instruction::Divide => self.binary_math_op(current_ip, &mut ctx, |a, b| a / b)?,
+                Instruction::Subtract => self.binary_math_op(&mut ctx, |a, b| a - b)?,
+                Instruction::Multiply => self.binary_math_op(&mut ctx, |a, b| a * b)?,
+                Instruction::Divide => self.binary_math_op(&mut ctx, |a, b| a / b)?,
                 Instruction::LoadTrue => ctx.stack.push(Value::Bool(true)),
                 Instruction::LoadFalse => ctx.stack.push(Value::Bool(false)),
                 Instruction::LoadNil => ctx.stack.push(Value::Nil),
@@ -110,8 +127,8 @@ impl<W: Write> VirtualMachine<W> {
                         ctx.stack.push(Value::Bool(a == b));
                     }
                 },
-                Instruction::Greater => self.binary_cmp_op(current_ip, &mut ctx, |a, b| a > b)?,
-                Instruction::Less => self.binary_cmp_op(current_ip, &mut ctx, |a, b| a < b)?,
+                Instruction::Greater => self.binary_cmp_op(&mut ctx, |a, b| a > b)?,
+                Instruction::Less => self.binary_cmp_op(&mut ctx, |a, b| a < b)?,
                 Instruction::Print => {
                     let value = ctx.stack.pop().unwrap();
                     writeln!(self.writer, "{}", value);
@@ -120,46 +137,63 @@ impl<W: Write> VirtualMachine<W> {
                     ctx.stack.pop();
                 },
                 Instruction::DefineGlobal { index } => {
-                    let name = ctx.chunk.constants[index as usize].as_object_ptr();
+                    let name = ctx.frame().chunk().constants[index as usize].as_object_ptr();
                     let value = ctx.stack.pop().unwrap();
                     self.mem.define_global(name, value);
                 },
                 Instruction::GetGlobal { index } => {
-                    let name = ctx.chunk.constants[index as usize].as_object_ptr();
+                    let name = ctx.frame().chunk().constants[index as usize].as_object_ptr();
                     if let Some(value) = self.mem.get_global(name) {
                         ctx.stack.push(value);
                     } else {
                         let name_str = unsafe { name.as_ref_unchecked().as_str() };
-                        self.runtime_err(current_ip, &mut ctx, &format!("Undefined global: {name_str}"));
+                        self.runtime_err(&mut ctx, &format!("Undefined global: {name_str}"));
                         return Err(InterpreterError::Runtime);
                     }
                 },
                 Instruction::SetGlobal { index } => {
-                    let name = ctx.chunk.constants[index as usize].as_object_ptr();
+                    let name = ctx.frame().chunk().constants[index as usize].as_object_ptr();
                     if !self.mem.set_global(name, ctx.peek_stack(0).cloned().unwrap()) {
                         let name_str = unsafe { name.as_ref_unchecked().as_str() };
-                        self.runtime_err(current_ip, &mut ctx, &format!("Undefined global: {name_str}"));
+                        self.runtime_err(&mut ctx, &format!("Undefined global: {name_str}"));
                         return Err(InterpreterError::Runtime);
                     }
                 },
                 Instruction::GetLocal { index } => {
-                    let value = ctx.stack[index as usize].clone();
+                    let slots_offset = ctx.frame().slots_offest;
+                    let value = ctx.stack[slots_offset + index as usize].clone();
                     ctx.stack.push(value);
                 },
                 Instruction::SetLocal { index } => {
+                    let slots_offset = ctx.frame().slots_offest;
                     let value = ctx.stack.last().cloned().unwrap();
-                    ctx.stack[index as usize] = value;
+                    ctx.stack[slots_offset + index as usize] = value;
                 },
                 Instruction::JumpIfFalse { offset: jump_offset } => {
                     if ctx.peek_stack(0).map_or(true, |v| v.is_falsy()) {
-                        ctx.ip += jump_offset as usize;
+                        ctx.frame_mut().ip += jump_offset as usize;
                     }
                 },
                 Instruction::Jump { offset: jump_offset } => {
-                    ctx.ip += jump_offset as usize;
+                    ctx.frame_mut().ip += jump_offset as usize;
                 },
                 Instruction::Loop { offset: jump_offset } => {
-                    ctx.ip -= jump_offset as usize;
+                    ctx.frame_mut().ip -= jump_offset as usize;
+                },
+                Instruction::Call { arg_count } => {
+                    if !self.call_value(ctx.peek_stack(arg_count as usize).cloned().unwrap(), &mut ctx, arg_count) {
+                        return Err(InterpreterError::Runtime);
+                    }
+                },
+                Instruction::Return => {
+                    let result = ctx.stack.pop().unwrap();
+                    if ctx.frames.len() == 1 {
+                        ctx.stack.pop();
+                        return Ok(());
+                    }
+
+                    ctx.pop_frame();
+                    ctx.stack.push(result);
                 },
             }
         }
@@ -167,9 +201,9 @@ impl<W: Write> VirtualMachine<W> {
     }
 
     #[inline(always)]
-    fn binary_math_op(&mut self, ip: usize, ctx: &mut RunContext, op: fn(f64, f64) -> f64) -> InterpreterResult<()> {
+    fn binary_math_op(&mut self, ctx: &mut RunContext, op: fn(f64, f64) -> f64) -> InterpreterResult<()> {
         if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) || !matches!(ctx.peek_stack(1), Some(Value::Number(..))) {
-            self.runtime_err(ip, ctx, "Operand must be a number.");
+            self.runtime_err(ctx, "Operand must be a number.");
             return Err(InterpreterError::Runtime);
         }
 
@@ -190,9 +224,9 @@ impl<W: Write> VirtualMachine<W> {
     }
 
     #[inline(always)]
-    fn binary_cmp_op(&mut self, ip: usize, ctx: &mut RunContext, op: fn(f64, f64) -> bool) -> InterpreterResult<()> {
+    fn binary_cmp_op(&mut self, ctx: &mut RunContext, op: fn(f64, f64) -> bool) -> InterpreterResult<()> {
         if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) || !matches!(ctx.peek_stack(1), Some(Value::Number(..))) {
-            self.runtime_err(ip, ctx, "Operand must be a number.");
+            self.runtime_err(ctx, "Operand must be a number.");
             return Err(InterpreterError::Runtime);
         }
         let value2 = ctx.stack.pop().unwrap().as_number();
@@ -200,6 +234,58 @@ impl<W: Write> VirtualMachine<W> {
         let result = Value::Bool(op(value1, value2));
         ctx.stack.push(result);
         Ok(())
+    }
+
+    fn call_value(&mut self, value: Value, ctx: &mut RunContext, arg_count: u8) -> bool {
+        if let Value::Object(obj) = value {
+            let obj = unsafe { &mut *obj };
+            match obj {
+                Object {
+                    data: ObjectData::Function(..),
+                    ..
+                } => return self.call(obj, ctx, arg_count),
+                Object {
+                    data: ObjectData::NativeFunction(native_fn),
+                    ..
+                } => {
+                    let result = native_fn(&ctx.stack[&ctx.stack.len() - arg_count as usize..]);
+                    ctx.pop_len((arg_count + 1).into());
+                    ctx.stack.push(result);
+                    return true;
+                },
+                _ => {},
+            }
+        }
+
+        self.runtime_err(ctx, "Can only call functions and classes.");
+        return false;
+    }
+
+    fn call(&mut self, obj: &mut Object, ctx: &mut RunContext, arg_count: u8) -> bool {
+        if obj.as_function().arity != arg_count as usize {
+            self.runtime_err(ctx, &format!("Expected {} arguments, got {}.", obj.as_function().arity, arg_count));
+            return false;
+        }
+        if ctx.frames.len() == MAX_FRAMES {
+            self.runtime_err(ctx, "Stack overflow.");
+            return false;
+        }
+
+        let frame = CallFrame {
+            function: obj,
+            ip: 0,
+            slots_offest: ctx.stack.len() - arg_count as usize - 1,
+        };
+        ctx.frames.push(frame);
+        return true;
+    }
+
+    fn define_native(&mut self, ctx: &mut RunContext, name: &str, native_fn: NativeFunction) {
+        ctx.stack.push(Value::Object(self.mem.intern_string(name)));
+        ctx.stack.push(Value::Object(self.mem.allocate_native_function(native_fn)));
+        self.mem.set_global(ctx.stack[0].as_object_ptr(), ctx.stack[1]);
+        ctx.stack.pop();
+        ctx.stack.pop();
     }
 
     fn disassemble(&mut self, chunk: &Chunk, instruction: &Instruction, offset: usize, consumed: usize) {
@@ -292,35 +378,68 @@ impl<W: Write> VirtualMachine<W> {
                 let target = offset + consumed - *jump_offset as usize;
                 writeln!(self.writer, "{:<16} {:4} -> {:04}", "OP_LOOP", jump_offset, target);
             },
+            Instruction::Call { arg_count } => {
+                writeln!(self.writer, "{:<16} {:4}", "OP_CALL", arg_count);
+            },
         }
     }
 }
 
 impl<T: Write> VirtualMachine<T> {
-    fn runtime_err(&mut self, ip: usize, ctx: &mut RunContext, message: &str) {
-        let line = ctx.chunk.lines[ip];
-        writeln!(self.writer, "{message}\n[line {line}] in script");
+    fn runtime_err(&mut self, ctx: &mut RunContext, message: &str) {
+        writeln!(self.writer, "{message}");
+        for frame in ctx.frames.iter().rev() {
+            let line = frame.chunk().lines[frame.ip];
+            let name = unsafe { frame.function().as_function().name.as_ref().map_or("script", |n| n.as_str()) };
+            writeln!(self.writer, "[line {line}] in {name}");
+        }
+
         unsafe { ctx.stack.set_len(0) };
     }
 }
 
 struct RunContext {
-    chunk: Chunk,
-    stack: ArrayVec<Value, STACK_SIZE>,
-    ip: usize,
+    stack: ArrayVec<Value, MAX_STACK>,
+    frames: ArrayVec<CallFrame, MAX_FRAMES>,
 }
 
 impl RunContext {
-    pub fn new(chunk: Chunk) -> Self {
+    pub fn new() -> Self {
         Self {
-            chunk,
             stack: ArrayVec::new(),
-            ip: 0,
+            frames: ArrayVec::new(),
         }
     }
 
+    #[inline(always)]
     pub fn peek_stack(&self, index: usize) -> Option<&Value> {
         self.stack.iter().rev().nth(index)
+    }
+
+    #[inline(always)]
+    fn frame(&self) -> &CallFrame {
+        &self.frames.last().unwrap()
+    }
+
+    #[inline(always)]
+    fn frame_mut(&mut self) -> &mut CallFrame {
+        self.frames.last_mut().unwrap()
+    }
+
+    #[inline(always)]
+    fn pop_frame(&mut self) -> CallFrame {
+        let frame = self.frames.pop().unwrap();
+        unsafe {
+            self.stack.set_len(frame.slots_offest);
+        }
+
+        return frame;
+    }
+
+    fn pop_len(&mut self, count: usize) {
+        unsafe {
+            self.stack.set_len(self.stack.len() - count);
+        }
     }
 }
 
@@ -341,6 +460,40 @@ impl Chunk {
     }
 }
 
+struct CallFrame {
+    function: *mut Object,
+    ip: usize,
+    slots_offest: usize,
+}
+
+impl CallFrame {
+    #[inline(always)]
+    pub fn chunk(&self) -> &Chunk {
+        match &self.function().data {
+            ObjectData::Function(f) => &f.chunk,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn chunk_mut(&mut self) -> &mut Chunk {
+        match &mut self.function_mut().data {
+            ObjectData::Function(f) => &mut f.chunk,
+            _ => unreachable!(),
+        }
+    }
+
+    #[inline(always)]
+    pub fn function(&self) -> &Object {
+        unsafe { self.function.as_ref_unchecked() }
+    }
+
+    #[inline(always)]
+    pub fn function_mut(&mut self) -> &mut Object {
+        unsafe { self.function.as_mut_unchecked() }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,23 +503,42 @@ mod tests {
         let mut buffer = Vec::new();
         let result;
         {
-            let mut vm = VirtualMachine::new(false, &mut buffer);
-            result = vm.run(chunk);
-        }
-        (result, String::from_utf8_lossy(&buffer).to_string())
-    }
-
-    fn run_chunk_with_mem(chunk: Chunk, mem: MemoryManager) -> (InterpreterResult<()>, String, MemoryManager) {
-        let mut buffer = Vec::new();
-        let result;
-        let returned_mem;
-        {
+            let mut mem = MemoryManager::new();
+            let name = mem.intern_string("");
+            let function = mem.allocate_function(name, 0);
+            unsafe {
+                if let ObjectData::Function(ref mut f) = (*function).data {
+                    f.chunk = chunk;
+                }
+            }
             let mut vm = VirtualMachine {
                 debug: false,
                 writer: &mut buffer,
                 mem,
             };
-            result = vm.run(chunk);
+            result = vm.run(function);
+        }
+        (result, String::from_utf8_lossy(&buffer).to_string())
+    }
+
+    fn run_chunk_with_mem(chunk: Chunk, mut mem: MemoryManager) -> (InterpreterResult<()>, String, MemoryManager) {
+        let mut buffer = Vec::new();
+        let result;
+        let returned_mem;
+        {
+            let name = mem.intern_string("");
+            let function = mem.allocate_function(name, 0);
+            unsafe {
+                if let ObjectData::Function(ref mut f) = (*function).data {
+                    f.chunk = chunk;
+                }
+            }
+            let mut vm = VirtualMachine {
+                debug: false,
+                writer: &mut buffer,
+                mem,
+            };
+            result = vm.run(function);
             returned_mem = vm.mem; // Extract the memory manager to inspect globals/heap after run
         }
         (result, String::from_utf8_lossy(&buffer).to_string(), returned_mem)
