@@ -1,3 +1,5 @@
+#![feature(iter_array_chunks)]
+
 #[macro_use]
 extern crate num_derive;
 

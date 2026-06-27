@@ -8,6 +8,7 @@ pub struct MemoryManager {
     objects: *mut Object,
     strings: HashMap<StrPtr, *mut Object>,
     globals: HashMap<StrPtr, Value>,
+    pub open_upvalues: *mut Object,
 }
 
 impl MemoryManager {
@@ -16,6 +17,7 @@ impl MemoryManager {
             objects: std::ptr::null_mut(),
             strings: HashMap::new(),
             globals: HashMap::new(),
+            open_upvalues: std::ptr::null_mut(),
         }
     }
 }
@@ -38,6 +40,18 @@ impl MemoryManager {
 
     pub fn allocate_function(&mut self, name: *mut Object, arity: usize) -> *mut Object {
         let object = Object::function(arity, name);
+        let ptr = unsafe { self.allocate_object(object) };
+        ptr
+    }
+
+    pub fn allocate_closure(&mut self, function: *mut Object, upvalue_count: usize) -> *mut Object {
+        let object = Object::closure(function, upvalue_count);
+        let ptr = unsafe { self.allocate_object(object) };
+        ptr
+    }
+
+    pub fn allocate_upvalue(&mut self, value: *mut Value) -> *mut Object {
+        let object = Object::upvalue(value);
         let ptr = unsafe { self.allocate_object(object) };
         ptr
     }

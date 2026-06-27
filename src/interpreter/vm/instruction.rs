@@ -28,6 +28,10 @@ pub enum OpCode {
     Jump,
     Loop,
     Call,
+    Closure,
+    GetUpvalue,
+    SetUpvalue,
+    CloseUpvalue,
 }
 
 impl From<OpCode> for u8 {
@@ -63,6 +67,10 @@ pub enum Instruction {
     JumpIfFalse { offset: u16 },
     Jump { offset: u16 },
     Loop { offset: u16 },
+    Closure { offset: u8 },
+    GetUpvalue { index: u8 },
+    SetUpvalue { index: u8 },
+    CloseUpvalue,
 }
 
 impl Instruction {
@@ -134,6 +142,22 @@ impl Instruction {
                 offset += 1;
                 Instruction::Call { arg_count }
             },
+            OpCode::Closure => {
+                let arg_offset = iter.next()?;
+                offset += 1;
+                Instruction::Closure { offset: arg_offset }
+            },
+            OpCode::GetUpvalue => {
+                let index = iter.next()?;
+                offset += 1;
+                Instruction::GetUpvalue { index }
+            },
+            OpCode::SetUpvalue => {
+                let index = iter.next()?;
+                offset += 1;
+                Instruction::SetUpvalue { index }
+            },
+            OpCode::CloseUpvalue => Instruction::CloseUpvalue,
         };
         Some((instruction, offset))
     }

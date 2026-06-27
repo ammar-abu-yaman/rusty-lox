@@ -18,6 +18,7 @@ use arrayvec::ArrayVec;
 struct Local<'a> {
     token: Token<'a>,
     depth: i32,
+    is_captured: bool,
 }
 
 #[derive(Debug, Default)]
@@ -50,6 +51,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             body_type: BodyType::Script,
             function: unsafe { mem.allocate_object(Object::function(0, empty_string)) },
             stack: Stack::default(),
+            upvalues: Vec::new(),
         };
 
         Self {
@@ -157,8 +159,12 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.consume(TokenType::LeftBrace, "Expected '{' before function body");
         self.block_statement();
 
-        let function = self.end_compilation();
-        self.emit_const(Value::Object(function));
+        let context = self.end_compilation();
+        self.emit_closure(Value::Object(context.function));
+
+        for Upvalue { is_local, index } in &context.upvalues {
+            self.write_bytes([*is_local as u8, *index as u8]);
+        }
     }
 
     fn define_var(&mut self, global_var_index: u8) {
@@ -419,10 +425,13 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     }
 
     fn named_var(&mut self, name: Token<'a>, can_assign: bool) {
-        let (arg, get_op, set_op) = self.resolve_local(name.lexeme).map_or_else(
-            || (self.identifier_const(&name), OpCode::GetGlobal as u8, OpCode::SetGlobal as u8),
-            |i| (i as u8, OpCode::GetLocal as u8, OpCode::SetLocal as u8),
-        );
+        let (arg, get_op, set_op) = match self.resolve_local(&name.lexeme, self.contexts.len() - 1) {
+            Some(i) => (i as u8, OpCode::GetLocal as u8, OpCode::SetLocal as u8),
+            None => match self.resolve_upvalue(&name, self.contexts.len() - 1) {
+                Some(arg) => (arg as u8, OpCode::GetUpvalue as u8, OpCode::SetUpvalue as u8),
+                None => (self.identifier_const(&name) as u8, OpCode::GetGlobal as u8, OpCode::SetGlobal as u8),
+            },
+        };
         if can_assign && self.match_current(TokenType::Asign) {
             self.expression();
             self.write_bytes([set_op, arg]);
@@ -519,6 +528,11 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.write_bytes([OpCode::LoadConst as u8, const_index as u8]);
     }
 
+    fn emit_closure(&mut self, value: Value) {
+        let const_index = self.add_const(value);
+        self.write_bytes([OpCode::Closure as u8, const_index as u8]);
+    }
+
     fn emit_jump(&mut self, opcode: OpCode) -> usize {
         self.write_bytes([opcode as u8, 0xff, 0xff]);
         return self.chunk().code.len() - 2;
@@ -561,7 +575,11 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             self.error("Too many local variables in function");
             return;
         }
-        let local = Local { token: name, depth: -1 };
+        let local = Local {
+            token: name,
+            depth: -1,
+            is_captured: false,
+        };
         self.stack_mut().locals.push(local);
     }
 
@@ -575,8 +593,26 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         }
     }
 
-    fn resolve_local(&mut self, name: &str) -> Option<usize> {
-        for (i, local) in self.stack().locals.iter().enumerate().rev() {
+    fn resolve_upvalue(&mut self, name: &Token<'_>, context_index: usize) -> Option<usize> {
+        if context_index == 0 {
+            return None;
+        }
+
+        let local = self.resolve_local(name.lexeme, context_index - 1);
+        if let Some(i) = local {
+            self.contexts[context_index - 1].stack.locals[i].is_captured = true;
+            return Some(self.add_upvalue(context_index, i as u8, true));
+        }
+
+        let upvalue = self.resolve_upvalue(name, context_index - 1);
+        match upvalue {
+            Some(i) => Some(self.add_upvalue(context_index, i as u8, false)),
+            None => None,
+        }
+    }
+
+    fn resolve_local(&mut self, name: &str, context_index: usize) -> Option<usize> {
+        for (i, local) in self.contexts[context_index].stack.locals.iter().enumerate().rev() {
             if local.token.lexeme == name {
                 if local.depth == -1 {
                     self.error("Can't read local variable in its own initializer.");
@@ -585,6 +621,26 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             }
         }
         None
+    }
+
+    fn add_upvalue(&mut self, context_index: usize, local_index: u8, is_local: bool) -> usize {
+        let upvalue = Upvalue { index: local_index, is_local };
+        for (i, current) in self.contexts[context_index].upvalues.iter().enumerate() {
+            if *current == upvalue {
+                return i;
+            }
+        }
+
+        let index = &mut unsafe { self.contexts[context_index].function.as_ref_unchecked().as_function().upvalue_count };
+        if *index == u8::MAX.into() {
+            self.error("Too many closure variables in function.");
+            return 0;
+        }
+
+        self.contexts[context_index].upvalues.push(upvalue);
+        let return_index = *index;
+        *index += 1;
+        return return_index;
     }
 
     fn context(&self) -> &CompilationContext<'a> {
@@ -611,9 +667,9 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         &mut self.context_mut().stack
     }
 
-    pub fn end_compilation(&mut self) -> *mut Object {
+    pub fn end_compilation(&mut self) -> CompilationContext<'a> {
         self.emit_return();
-        self.contexts.pop().unwrap().function
+        self.contexts.pop().unwrap()
     }
 
     fn write_bytes<const N: usize, T: Into<u8>>(&mut self, bytes: [T; N]) {
@@ -637,8 +693,12 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     fn end_scope(&mut self) {
         self.stack_mut().depth -= 1;
         while !self.stack().locals.is_empty() && self.stack().locals.last().unwrap().depth > self.stack().depth {
-            self.stack_mut().locals.pop();
-            self.emit_pop();
+            let local = self.stack_mut().locals.pop().unwrap();
+            if local.is_captured {
+                self.write_bytes([OpCode::CloseUpvalue]);
+            } else {
+                self.emit_pop();
+            }
         }
     }
 }
@@ -773,10 +833,17 @@ impl<'a, W: std::io::Write> ParseRule<'a, W> {
     }
 }
 
-struct CompilationContext<'a> {
-    body_type: BodyType,
-    function: *mut Object,
-    stack: Stack<'a>,
+pub struct CompilationContext<'a> {
+    pub body_type: BodyType,
+    pub function: *mut Object,
+    pub stack: Stack<'a>,
+    pub upvalues: Vec<Upvalue>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+struct Upvalue {
+    index: u8,
+    is_local: bool,
 }
 
 impl<'a> CompilationContext<'a> {
@@ -785,10 +852,12 @@ impl<'a> CompilationContext<'a> {
             body_type,
             function,
             stack: Stack::default(),
+            upvalues: Vec::new(),
         };
         context.stack.locals.push(Local {
             token: Token::textual("", 0, 0),
             depth: 0,
+            is_captured: false,
         });
         context
     }

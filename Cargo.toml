@@ -1,3 +1,6 @@
+[toolchain]
+channel = "nightly"
+
 [package]
 name = "codecrafters-interpreter"
 version = "0.1.0"

@@ -16,12 +16,12 @@ use result::{InterpreterError, InterpreterResult};
 use value::Value;
 
 use crate::{
-    interpreter::vm::object::{Object, ObjectData},
+    interpreter::vm::object::{ObjClosure, Object, ObjectData},
     scanner::Scanner,
 };
 
 pub(self) const MAX_FRAMES: usize = 64;
-pub(self) const STACK_SIZE: usize = (u8::MAX as usize + 1);
+pub(self) const STACK_SIZE: usize = u8::MAX as usize + 1;
 pub(self) const MAX_STACK: usize = MAX_FRAMES * STACK_SIZE;
 
 pub struct VirtualMachine<W: Write> {
@@ -50,22 +50,22 @@ impl<W: Write> VirtualMachine<W> {
             return InterpreterResult::Err(InterpreterError::Compile);
         }
 
-        let function = compiler.end_compilation();
+        let function = compiler.end_compilation().function;
         std::mem::drop(compiler);
         self.run(function)?;
         Ok(())
     }
 
-    pub fn run(&mut self, function: *mut Object) -> InterpreterResult<()> {
+    pub fn run(&mut self, closure: *mut Object) -> InterpreterResult<()> {
         let mut ctx = RunContext::new();
         self.define_native(&mut ctx, "clock", native_clock);
 
         ctx.frames.push(CallFrame {
-            function,
+            closure,
             ip: 0,
             slots_offest: ctx.stack.len(),
         });
-        ctx.stack.push(Value::Object(function));
+        ctx.stack.push(Value::Object(closure));
 
         loop {
             let instruction_result = {
@@ -186,14 +186,48 @@ impl<W: Write> VirtualMachine<W> {
                     }
                 },
                 Instruction::Return => {
-                    let result = ctx.stack.pop().unwrap();
                     if ctx.frames.len() == 1 {
                         ctx.stack.pop();
                         return Ok(());
                     }
 
+                    let result = ctx.stack.pop().unwrap();
+                    let stack_index = ctx.frame().slots_offest;
+                    self.close_upvalue(&mut ctx, stack_index);
                     ctx.pop_frame();
                     ctx.stack.push(result);
+                },
+                Instruction::Closure { offset } => unsafe {
+                    let function = ctx.frame().chunk().constants[offset as usize].clone().as_object_ptr();
+                    let upvalue_count = function.as_ref_unchecked().as_function().upvalue_count;
+                    let closure = self.mem.allocate_closure(function, upvalue_count);
+                    ctx.stack.push(Value::Object(closure));
+                    for upvalue in closure.as_mut_unchecked().as_closure_mut().upvalues.iter_mut() {
+                        let is_local = ctx.frame().chunk().code[ctx.frame().ip];
+                        let index = ctx.frame().chunk().code[ctx.frame().ip + 1] as usize;
+                        ctx.frame_mut().ip += 2;
+                        if is_local != 0 {
+                            *upvalue = self.capture_upvalue(&mut ctx, index);
+                        } else {
+                            *upvalue = ctx.frame().closure.as_ref_unchecked().as_closure().upvalues[index];
+                        }
+                    }
+                },
+                Instruction::GetUpvalue { index } => unsafe {
+                    let value = ctx.frame().closure().as_closure().upvalues[index as usize];
+                    ctx.stack.push(value.as_ref_unchecked().as_upvalue().location.as_ref_unchecked().clone());
+                },
+                Instruction::SetUpvalue { index } => unsafe {
+                    let value = ctx.peek_stack(index as usize).unwrap().clone();
+                    *(ctx.frame_mut().closure_mut().as_closure_mut().upvalues[index as usize]
+                        .as_mut_unchecked()
+                        .as_upvalue_mut()
+                        .location) = value;
+                },
+                Instruction::CloseUpvalue => {
+                    let stack_index = ctx.stack.len() - 1;
+                    self.close_upvalue(&mut ctx, stack_index);
+                    ctx.stack.pop();
                 },
             }
         }
@@ -241,7 +275,7 @@ impl<W: Write> VirtualMachine<W> {
             let obj = unsafe { &mut *obj };
             match obj {
                 Object {
-                    data: ObjectData::Function(..),
+                    data: ObjectData::Function(..) | ObjectData::Closure(..),
                     ..
                 } => return self.call(obj, ctx, arg_count),
                 Object {
@@ -262,8 +296,8 @@ impl<W: Write> VirtualMachine<W> {
     }
 
     fn call(&mut self, obj: &mut Object, ctx: &mut RunContext, arg_count: u8) -> bool {
-        if obj.as_function().arity != arg_count as usize {
-            self.runtime_err(ctx, &format!("Expected {} arguments, got {}.", obj.as_function().arity, arg_count));
+        if obj.as_closure().function().arity != arg_count as usize {
+            self.runtime_err(ctx, &format!("Expected {} arguments, got {}.", obj.as_closure().function().arity, arg_count));
             return false;
         }
         if ctx.frames.len() == MAX_FRAMES {
@@ -272,7 +306,7 @@ impl<W: Write> VirtualMachine<W> {
         }
 
         let frame = CallFrame {
-            function: obj,
+            closure: obj,
             ip: 0,
             slots_offest: ctx.stack.len() - arg_count as usize - 1,
         };
@@ -286,6 +320,47 @@ impl<W: Write> VirtualMachine<W> {
         self.mem.set_global(ctx.stack[0].as_object_ptr(), ctx.stack[1]);
         ctx.stack.pop();
         ctx.stack.pop();
+    }
+
+    fn capture_upvalue(&mut self, ctx: &mut RunContext, index: usize) -> *mut Object {
+        let mut pre_upvalue = std::ptr::null_mut();
+        let mut upvalue = self.mem.open_upvalues;
+        let stack_index = ctx.frame().slots_offest + index;
+        let value_ptr = &mut ctx.stack[stack_index] as *mut Value;
+
+        unsafe {
+            while !upvalue.is_null() && upvalue.as_ref_unchecked().as_upvalue().location > value_ptr {
+                pre_upvalue = upvalue;
+                upvalue = upvalue.as_ref_unchecked().as_upvalue().next;
+            }
+            if !upvalue.is_null() && upvalue.as_ref_unchecked().as_upvalue().location == value_ptr {
+                return upvalue;
+            }
+        }
+
+        let created_upvalue = self.mem.allocate_upvalue(value_ptr);
+        unsafe {
+            if pre_upvalue.is_null() {
+                self.mem.open_upvalues = created_upvalue;
+            } else {
+                pre_upvalue.as_mut_unchecked().as_upvalue_mut().next = created_upvalue;
+            }
+        }
+
+        return created_upvalue;
+    }
+
+    fn close_upvalue(&mut self, ctx: &mut RunContext, stack_index: usize) {
+        let last = &mut ctx.stack[stack_index] as *mut Value;
+
+        unsafe {
+            while !self.mem.open_upvalues.is_null() && self.mem.open_upvalues.as_ref_unchecked().as_upvalue().location >= last {
+                self.mem.open_upvalues.as_mut_unchecked().as_upvalue_mut().closed = Some(*self.mem.open_upvalues.as_mut_unchecked().as_upvalue_mut().location);
+                let new_location = self.mem.open_upvalues.as_mut_unchecked().as_upvalue_mut().closed.as_mut().unwrap() as *mut Value;
+                self.mem.open_upvalues.as_mut_unchecked().as_upvalue_mut().location = new_location;
+                self.mem.open_upvalues = self.mem.open_upvalues.as_ref_unchecked().as_upvalue().next;
+            }
+        }
     }
 
     fn disassemble(&mut self, chunk: &Chunk, instruction: &Instruction, offset: usize, consumed: usize) {
@@ -381,6 +456,32 @@ impl<W: Write> VirtualMachine<W> {
             Instruction::Call { arg_count } => {
                 writeln!(self.writer, "{:<16} {:4}", "OP_CALL", arg_count);
             },
+            Instruction::Closure { offset } => {
+                let value = &chunk.constants[*offset as usize];
+                writeln!(self.writer, "{:<16} {:4} -> {}", "OP_CLOSURE", offset, value);
+                let closure = unsafe { value.as_object().as_closure().function.as_ref_unchecked().as_function() };
+
+                let offset = *offset as usize;
+                chunk.code[offset..]
+                    .iter()
+                    .array_chunks::<2>()
+                    .into_iter()
+                    .enumerate()
+                    .take(closure.upvalue_count)
+                    .for_each(|(i, [is_local, index])| {
+                        let is_local = if *is_local == 1 { "local" } else { "upvalue" };
+                        writeln!(self.writer, "{:<4} {is_local} {}", offset + i * 2, index);
+                    });
+            },
+            Instruction::GetUpvalue { index } => {
+                writeln!(self.writer, "{:<16} {:4}", "OP_GET_UPVALUE", index);
+            },
+            Instruction::SetUpvalue { index } => {
+                writeln!(self.writer, "{:<16} {:4}", "OP_SET_UPVALUE", index);
+            },
+            Instruction::CloseUpvalue => {
+                writeln!(self.writer, "OP_CLOSE_UPVALUE");
+            },
         }
     }
 }
@@ -390,7 +491,7 @@ impl<T: Write> VirtualMachine<T> {
         writeln!(self.writer, "{message}");
         for frame in ctx.frames.iter().rev() {
             let line = frame.chunk().lines[frame.ip];
-            let name = unsafe { frame.function().as_function().name.as_ref().map_or("script", |n| n.as_str()) };
+            let name = unsafe { frame.closure().as_closure().function().name.as_ref().map_or("script", |n| n.as_str()) };
             writeln!(self.writer, "[line {line}] in {name}");
         }
 
@@ -461,7 +562,7 @@ impl Chunk {
 }
 
 struct CallFrame {
-    function: *mut Object,
+    closure: *mut Object,
     ip: usize,
     slots_offest: usize,
 }
@@ -469,28 +570,28 @@ struct CallFrame {
 impl CallFrame {
     #[inline(always)]
     pub fn chunk(&self) -> &Chunk {
-        match &self.function().data {
-            ObjectData::Function(f) => &f.chunk,
+        match &self.closure().data {
+            ObjectData::Closure(c) => &c.function().chunk,
             _ => unreachable!(),
         }
     }
 
     #[inline(always)]
     pub fn chunk_mut(&mut self) -> &mut Chunk {
-        match &mut self.function_mut().data {
-            ObjectData::Function(f) => &mut f.chunk,
+        match &mut self.closure_mut().data {
+            ObjectData::Closure(c) => &mut c.function_mut().chunk,
             _ => unreachable!(),
         }
     }
 
     #[inline(always)]
-    pub fn function(&self) -> &Object {
-        unsafe { self.function.as_ref_unchecked() }
+    pub fn closure(&self) -> &Object {
+        unsafe { self.closure.as_ref_unchecked() }
     }
 
     #[inline(always)]
-    pub fn function_mut(&mut self) -> &mut Object {
-        unsafe { self.function.as_mut_unchecked() }
+    pub fn closure_mut(&mut self) -> &mut Object {
+        unsafe { self.closure.as_mut_unchecked() }
     }
 }
 
