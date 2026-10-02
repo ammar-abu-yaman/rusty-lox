@@ -67,4 +67,10 @@ impl Value {
             _ => false,
         }
     }
+
+    pub fn mark(&mut self, mut gray_stack: &mut Vec<*mut Object>) {
+        if let Self::Object(ptr) = self {
+            ptr.mark_ptr(gray_stack);
+        }
+    }
 }

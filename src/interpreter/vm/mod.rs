@@ -52,7 +52,8 @@ impl<W: Write> VirtualMachine<W> {
 
         let function = compiler.end_compilation().function;
         std::mem::drop(compiler);
-        self.run(function)?;
+        let closure = self.mem.allocate_closure(function, 0);
+        self.run(closure)?;
         Ok(())
     }
 
@@ -68,6 +69,13 @@ impl<W: Write> VirtualMachine<W> {
         ctx.stack.push(Value::Object(closure));
 
         loop {
+            #[cfg(feature = "debug-stress-gc")]
+            self.collect_garbage(&mut ctx);
+
+            if self.mem.bytes_allocated > self.mem.next_gc {
+                self.collect_garbage(&mut ctx);
+            }
+
             let instruction_result = {
                 let ip = ctx.frame().ip;
                 Instruction::from_bytes_iter(&mut ctx.frame_mut().chunk_mut().code.iter().skip(ip).copied())
@@ -218,7 +226,7 @@ impl<W: Write> VirtualMachine<W> {
                     ctx.stack.push(value.as_ref_unchecked().as_upvalue().location.as_ref_unchecked().clone());
                 },
                 Instruction::SetUpvalue { index } => unsafe {
-                    let value = ctx.peek_stack(index as usize).unwrap().clone();
+                    let value = ctx.peek_stack(0).unwrap().clone();
                     *(ctx.frame_mut().closure_mut().as_closure_mut().upvalues[index as usize]
                         .as_mut_unchecked()
                         .as_upvalue_mut()
@@ -317,7 +325,7 @@ impl<W: Write> VirtualMachine<W> {
     fn define_native(&mut self, ctx: &mut RunContext, name: &str, native_fn: NativeFunction) {
         ctx.stack.push(Value::Object(self.mem.intern_string(name)));
         ctx.stack.push(Value::Object(self.mem.allocate_native_function(native_fn)));
-        self.mem.set_global(ctx.stack[0].as_object_ptr(), ctx.stack[1]);
+        self.mem.define_global(ctx.stack[0].as_object_ptr(), ctx.stack[1]);
         ctx.stack.pop();
         ctx.stack.pop();
     }
@@ -339,7 +347,9 @@ impl<W: Write> VirtualMachine<W> {
         }
 
         let created_upvalue = self.mem.allocate_upvalue(value_ptr);
+
         unsafe {
+            created_upvalue.as_mut_unchecked().as_upvalue_mut().next = upvalue;
             if pre_upvalue.is_null() {
                 self.mem.open_upvalues = created_upvalue;
             } else {
@@ -456,20 +466,18 @@ impl<W: Write> VirtualMachine<W> {
             Instruction::Call { arg_count } => {
                 writeln!(self.writer, "{:<16} {:4}", "OP_CALL", arg_count);
             },
-            Instruction::Closure { offset } => {
-                let value = &chunk.constants[*offset as usize];
-                writeln!(self.writer, "{:<16} {:4} -> {}", "OP_CLOSURE", offset, value);
-                let closure = unsafe { value.as_object().as_closure().function.as_ref_unchecked().as_function() };
+            Instruction::Closure { offset: closure_offset } => {
+                let function = chunk.constants[*closure_offset as usize].clone();
+                writeln!(self.writer, "{:<16} {:4} -> {}", "OP_CLOSURE", closure_offset, function);
 
-                let offset = *offset as usize;
                 chunk.code[offset..]
-                    .iter()
-                    .array_chunks::<2>()
-                    .into_iter()
+                    .chunks_exact(2)
                     .enumerate()
-                    .take(closure.upvalue_count)
-                    .for_each(|(i, [is_local, index])| {
-                        let is_local = if *is_local == 1 { "local" } else { "upvalue" };
+                    .take(function.as_object().as_function().upvalue_count)
+                    .for_each(|(i, chunk)| {
+                        let is_local = chunk[0];
+                        let index = chunk[1];
+                        let is_local = if is_local == 1 { "local" } else { "upvalue" };
                         writeln!(self.writer, "{:<4} {is_local} {}", offset + i * 2, index);
                     });
             },
@@ -487,6 +495,74 @@ impl<W: Write> VirtualMachine<W> {
 }
 
 impl<T: Write> VirtualMachine<T> {
+    fn collect_garbage(&mut self, ctx: &mut RunContext) {
+        #[cfg(feature = "debug-log-gc")]
+        println!("-- gc begin");
+
+        let before_bytes = self.mem.bytes_allocated;
+        let gray_stack = self.mark_roots(ctx);
+        self.trace_references(gray_stack);
+        self.mem.remove_unmarked_strings();
+        self.mem.sweep();
+        self.mem.adjust_next_gc();
+
+        #[cfg(feature = "debug-log-gc")]
+        {
+            println!("-- gc end");
+            println!(
+                "collected {} bytes, (from {} to {}). next GC at {}",
+                before_bytes - self.mem.bytes_allocated,
+                before_bytes,
+                self.mem.bytes_allocated,
+                self.mem.next_gc
+            );
+        }
+    }
+
+    fn mark_roots(&mut self, ctx: &mut RunContext) -> Vec<*mut Object> {
+        let mut gray_stack = vec![];
+        ctx.stack.iter_mut().for_each(|v| v.mark(&mut gray_stack));
+        self.mem.mark_globals(&mut gray_stack);
+        ctx.frames.iter_mut().for_each(|f| f.closure.mark_ptr(&mut gray_stack));
+        self.mem.mark_open_upvalues(&mut gray_stack);
+        return gray_stack;
+    }
+
+    fn trace_references(&mut self, mut gray_stack: Vec<*mut Object>) {
+        while let Some(ptr) = gray_stack.pop() {
+            self.blacken_object(ptr, &mut gray_stack);
+        }
+    }
+
+    fn blacken_object(&mut self, ptr: *mut Object, gray_stack: &mut Vec<*mut Object>) {
+        if ptr.is_null() {
+            return;
+        }
+
+        let obj = unsafe { &mut *ptr };
+        #[cfg(feature = "debug-log-gc")]
+        println!("{obj:p} blaken {obj}");
+
+        match &mut obj.data {
+            ObjectData::Upvalue(upvalue) => upvalue.closed.iter_mut().for_each(|c| c.mark(gray_stack)),
+            ObjectData::Function(function) => {
+                function.name.mark_ptr(gray_stack);
+                for constant in &mut function.chunk.constants {
+                    constant.mark(gray_stack);
+                }
+            },
+            ObjectData::Closure(closure) => {
+                closure.function.mark_ptr(gray_stack);
+                for upvalue in &mut closure.upvalues {
+                    upvalue.mark_ptr(gray_stack);
+                }
+            },
+            _ => {},
+        }
+    }
+}
+
+impl<T: Write> VirtualMachine<T> {
     fn runtime_err(&mut self, ctx: &mut RunContext, message: &str) {
         writeln!(self.writer, "{message}");
         for frame in ctx.frames.iter().rev() {
@@ -495,6 +571,9 @@ impl<T: Write> VirtualMachine<T> {
             writeln!(self.writer, "[line {line}] in {name}");
         }
 
+        if !ctx.stack.is_empty() {
+            self.close_upvalue(ctx, 0);
+        }
         unsafe { ctx.stack.set_len(0) };
     }
 }
@@ -617,7 +696,8 @@ mod tests {
                 writer: &mut buffer,
                 mem,
             };
-            result = vm.run(function);
+            let closure = vm.mem.allocate_closure(function, 0);
+            result = vm.run(closure);
         }
         (result, String::from_utf8_lossy(&buffer).to_string())
     }
@@ -639,7 +719,8 @@ mod tests {
                 writer: &mut buffer,
                 mem,
             };
-            result = vm.run(function);
+            let closure = vm.mem.allocate_closure(function, 0);
+            result = vm.run(closure);
             returned_mem = vm.mem; // Extract the memory manager to inspect globals/heap after run
         }
         (result, String::from_utf8_lossy(&buffer).to_string(), returned_mem)

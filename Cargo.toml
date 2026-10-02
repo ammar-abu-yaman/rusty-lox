@@ -1,6 +1,3 @@
-[toolchain]
-channel = "nightly"
-
 [package]
 name = "codecrafters-interpreter"
 version = "0.1.0"
@@ -19,3 +16,5 @@ clap = { version = "4.6.1", features = ["derive"] }
 
 [features]
 integration-tests = []
+debug-stress-gc = []
+debug-log-gc = []

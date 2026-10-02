@@ -47,7 +47,7 @@ pub struct ByteCodeCompiler<'a, W: std::io::Write> {
 impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     pub fn new(scanner: &'a Scanner, logger: &'a mut Logger<W>, mem: &'a mut MemoryManager) -> Self {
         let empty_string = mem.intern_string("");
-        let mut main_context = CompilationContext {
+        let main_context = CompilationContext {
             body_type: BodyType::Script,
             function: unsafe { mem.allocate_object(Object::function(0, empty_string)) },
             stack: Stack::default(),
@@ -631,7 +631,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             }
         }
 
-        let index = &mut unsafe { self.contexts[context_index].function.as_ref_unchecked().as_function().upvalue_count };
+        let index = &mut unsafe { self.contexts[context_index].function.as_mut_unchecked().as_function_mut().upvalue_count };
         if *index == u8::MAX.into() {
             self.error("Too many closure variables in function.");
             return 0;
@@ -716,6 +716,10 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.panic_mode = true;
         self.logger.log_err_at(token, message);
     }
+}
+
+impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
+    fn mark_compiler_roots(&mut self) {}
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -1295,7 +1299,7 @@ mod tests {
             compiler.end_compilation()
         };
 
-        let chunk = unsafe { &main_function.as_ref_unchecked().as_function().chunk };
+        let chunk = unsafe { &&main_function.function.as_ref_unchecked().as_function().chunk };
 
         assert!(has_error);
 
@@ -1337,7 +1341,7 @@ mod tests {
         compiler.write_end();
 
         let main_function = compiler.end_compilation();
-        let chunk = unsafe { &main_function.as_ref_unchecked().as_function().chunk };
+        let chunk = unsafe { &&main_function.function.as_ref_unchecked().as_function().chunk };
 
         assert!(!compiler.has_error, "Compilation failed with errors");
 
@@ -1367,7 +1371,7 @@ mod tests {
         compiler.write_end();
 
         let main_function = compiler.end_compilation();
-        let chunk = unsafe { &main_function.as_ref_unchecked().as_function().chunk };
+        let chunk = unsafe { &&main_function.function.as_ref_unchecked().as_function().chunk };
         assert!(!compiler.has_error, "Compilation failed with errors");
 
         std::mem::drop(compiler);

@@ -1,14 +1,18 @@
-use crate::interpreter::vm::object::NativeFunction;
+use crate::interpreter::vm::object::{self, NativeFunction};
 
 use super::object::Object;
 use super::value::Value;
 use std::{collections::HashMap, hash::Hash};
+
+pub const GC_GROWTH_FACTOR: usize = 2;
 
 pub struct MemoryManager {
     objects: *mut Object,
     strings: HashMap<StrPtr, *mut Object>,
     globals: HashMap<StrPtr, Value>,
     pub open_upvalues: *mut Object,
+    pub bytes_allocated: usize,
+    pub next_gc: usize,
 }
 
 impl MemoryManager {
@@ -18,6 +22,8 @@ impl MemoryManager {
             strings: HashMap::new(),
             globals: HashMap::new(),
             open_upvalues: std::ptr::null_mut(),
+            bytes_allocated: 0,
+            next_gc: 1024usize * 1024usize,
         }
     }
 }
@@ -80,10 +86,66 @@ impl MemoryManager {
     }
 
     pub unsafe fn allocate_object(&mut self, mut object: Object) -> *mut Object {
+        self.bytes_allocated += object.get_size();
         object.next = self.objects;
         let ptr = Box::into_raw(Box::new(object));
         self.objects = ptr;
+        #[cfg(feature = "debug-log-gc")]
+        println!("{:p} allocate for {:?}", ptr, (*ptr).data);
+
         ptr
+    }
+
+    pub fn adjust_next_gc(&mut self) {
+        self.next_gc = self.bytes_allocated * GC_GROWTH_FACTOR;
+    }
+}
+
+impl MemoryManager {
+    pub fn mark_globals(&mut self, gray_stack: &mut Vec<*mut Object>) {
+        self.globals.iter_mut().for_each(|(key, value)| {
+            if let Some(ptr) = self.strings.get(key) {
+                ptr.mark_ptr(gray_stack);
+            }
+            value.mark(gray_stack);
+        });
+    }
+
+    pub fn mark_open_upvalues(&mut self, gray_stack: &mut Vec<*mut Object>) {
+        unsafe {
+            let mut curr = self.open_upvalues;
+            while !curr.is_null() {
+                curr.mark_ptr(gray_stack);
+                curr = (*curr).next;
+            }
+        }
+    }
+
+    pub fn remove_unmarked_strings(&mut self) {
+        self.strings.retain(|_, v| unsafe { v.read().is_marked });
+    }
+
+    pub fn sweep(&mut self) {
+        let mut previous = std::ptr::null_mut();
+        let mut current = self.objects;
+        unsafe {
+            while !current.is_null() {
+                if !(*current).is_marked {
+                    (*current).is_marked = false;
+                    previous = current;
+                    current = (*current).next;
+                } else {
+                    let unreachable = current;
+                    current = (*current).next;
+                    if !previous.is_null() {
+                        (*previous).next = (*unreachable).next;
+                    } else {
+                        self.objects = (*unreachable).next;
+                    }
+                    drop(Box::from_raw(unreachable));
+                }
+            }
+        }
     }
 }
 
@@ -113,6 +175,10 @@ impl Drop for MemoryManager {
         unsafe {
             while !curr.is_null() {
                 let next = (*curr).next;
+
+                #[cfg(feature = "debug-log-gc")]
+                println!("{:p} free type {:?}", curr, (*curr).data);
+
                 drop(Box::from_raw(curr));
                 curr = next;
             }

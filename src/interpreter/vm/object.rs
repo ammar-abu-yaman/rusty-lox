@@ -5,6 +5,7 @@ use crate::interpreter::vm::Chunk;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Object {
+    pub is_marked: bool,
     pub next: *mut Object,
     pub data: ObjectData,
 }
@@ -56,6 +57,7 @@ impl ObjClosure {
 impl Object {
     pub fn string(value: impl Into<String>) -> Self {
         Self {
+            is_marked: false,
             next: std::ptr::null_mut(),
             data: ObjectData::String(value.into()),
         }
@@ -63,6 +65,7 @@ impl Object {
 
     pub fn function(arity: usize, name: *mut Object) -> Self {
         Self {
+            is_marked: false,
             next: std::ptr::null_mut(),
             data: ObjectData::Function(ObjFunction {
                 arity,
@@ -75,6 +78,7 @@ impl Object {
 
     pub fn native(native_fn: NativeFunction) -> Self {
         Self {
+            is_marked: false,
             next: std::ptr::null_mut(),
             data: ObjectData::NativeFunction(native_fn),
         }
@@ -82,6 +86,7 @@ impl Object {
 
     pub fn closure(function: *mut Object, upvalue_count: usize) -> Self {
         Self {
+            is_marked: false,
             next: std::ptr::null_mut(),
             data: ObjectData::Closure(ObjClosure {
                 function,
@@ -92,6 +97,7 @@ impl Object {
 
     pub fn upvalue(value: *mut Value) -> Self {
         Self {
+            is_marked: false,
             next: std::ptr::null_mut(),
             data: ObjectData::Upvalue(ObjUpvalue {
                 location: value,
@@ -167,6 +173,37 @@ impl Object {
 
     pub fn is_function(&self) -> bool {
         matches!(self.data, ObjectData::Function { .. })
+    }
+
+    pub fn mark(&mut self, gray_stack: &mut Vec<*mut Object>) {
+        #[cfg(feature = "debug-log-gc")]
+        println!("{self:p} marking: {self:?}");
+        if self.is_marked {
+            return;
+        }
+
+        self.is_marked = true;
+        gray_stack.push(self);
+    }
+
+    pub fn mark_ptr(self: *mut Self, gray_stack: &mut Vec<*mut Object>) {
+        if !self.is_null() {
+            unsafe { (*self).mark(gray_stack) };
+        }
+    }
+
+    pub fn get_size(&self) -> usize {
+        const HEADER_SIZE: usize = std::mem::size_of::<Object>();
+        return match &self.data {
+            ObjectData::String(value) => value.capacity(),
+            ObjectData::Function(fun) => {
+                fun.chunk.code.capacity()
+                    + fun.chunk.lines.capacity() * std::mem::size_of::<u32>()
+                    + fun.chunk.constants.capacity() * std::mem::size_of::<Value>()
+            },
+            ObjectData::Closure(closure) => closure.upvalues.capacity() * std::mem::size_of::<*mut Object>(),
+            ObjectData::NativeFunction(_) | ObjectData::Upvalue(_) => 0,
+        } + HEADER_SIZE;
     }
 }
 
