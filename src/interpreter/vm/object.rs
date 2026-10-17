@@ -1,5 +1,6 @@
 use std::{fmt::Display, panic};
 
+use super::class::{ObjClass, ObjInstance};
 use super::value::Value;
 use crate::interpreter::vm::Chunk;
 
@@ -17,6 +18,8 @@ pub enum ObjectData {
     NativeFunction(NativeFunction),
     Closure(ObjClosure),
     Upvalue(ObjUpvalue),
+    Class(ObjClass),
+    Instance(ObjInstance),
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +66,14 @@ impl Object {
         }
     }
 
+    pub fn class(name: *mut Object) -> Self {
+        Self {
+            is_marked: false,
+            next: std::ptr::null_mut(),
+            data: ObjectData::Class(ObjClass { name }),
+        }
+    }
+
     pub fn function(arity: usize, name: *mut Object) -> Self {
         Self {
             is_marked: false,
@@ -106,6 +117,17 @@ impl Object {
             }),
         }
     }
+
+    pub fn instance(class: *mut Object) -> Self {
+        Self {
+            is_marked: false,
+            next: std::ptr::null_mut(),
+            data: ObjectData::Instance(ObjInstance {
+                class,
+                fields: std::collections::HashMap::new(),
+            }),
+        }
+    }
 }
 
 impl Object {
@@ -140,6 +162,23 @@ impl Object {
         }
     }
 
+    pub fn as_class(&self) -> &ObjClass {
+        match &self.data {
+            ObjectData::Class(class) => class,
+            _ => panic!("Expected a class, got {:?}", self),
+        }
+    }
+
+    pub fn as_class_mut(&mut self) -> &mut ObjClass {
+        if !matches!(self.data, ObjectData::Class { .. }) {
+            panic!("Expected a class, got {:?}", self);
+        }
+        match &mut self.data {
+            ObjectData::Class(class) => class,
+            _ => unreachable!(),
+        }
+    }
+
     pub fn as_function_mut(&mut self) -> &mut ObjFunction {
         if !matches!(self.data, ObjectData::Function { .. }) {
             panic!("Expected a function, got {:?}", self);
@@ -163,6 +202,23 @@ impl Object {
         }
         match &mut self.data {
             ObjectData::Upvalue(upvalue) => upvalue,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn as_instance(&self) -> &ObjInstance {
+        match &self.data {
+            ObjectData::Instance(instance) => instance,
+            _ => panic!("Expected an instance, got {:?}", self),
+        }
+    }
+
+    pub fn as_instance_mut(&mut self) -> &mut ObjInstance {
+        if !matches!(self.data, ObjectData::Instance { .. }) {
+            panic!("Expected an instance, got {:?}", self);
+        }
+        match &mut self.data {
+            ObjectData::Instance(instance) => instance,
             _ => unreachable!(),
         }
     }
@@ -203,6 +259,8 @@ impl Object {
             },
             ObjectData::Closure(closure) => closure.upvalues.capacity() * std::mem::size_of::<*mut Object>(),
             ObjectData::NativeFunction(_) | ObjectData::Upvalue(_) => 0,
+            ObjectData::Class(_) => 0,
+            ObjectData::Instance(instance) => instance.fields.capacity() * std::mem::size_of::<(super::mem::StrPtr, Value)>(),
         } + HEADER_SIZE;
     }
 }
@@ -221,6 +279,10 @@ impl Display for Object {
             ObjectData::NativeFunction(_) => write!(f, "<native fn>"),
             ObjectData::Closure(ObjClosure { function, .. }) => unsafe { function.as_ref_unchecked().fmt(f) },
             ObjectData::Upvalue(_) => write!(f, "upvalue"),
+            ObjectData::Class(ObjClass { name }) => unsafe { write!(f, "<class {}>", name.as_ref_unchecked().as_str()) },
+            ObjectData::Instance(instance) => unsafe {
+                write!(f, "{} instance", instance.class.as_ref_unchecked().as_class().name.as_ref_unchecked().as_str())
+            },
         }
     }
 }

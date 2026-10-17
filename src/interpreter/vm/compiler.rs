@@ -1,5 +1,4 @@
 use super::instruction::OpCode;
-use super::object::ObjFunction;
 use crate::interpreter::vm::object::Object;
 use crate::token::TokenType;
 
@@ -82,6 +81,8 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             self.var_declaration();
         } else if self.match_current(TokenType::Fun) {
             self.function_declaration();
+        } else if self.match_current(TokenType::Class) {
+            self.class_declaration();
         } else {
             self.statement();
         }
@@ -109,6 +110,18 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.mark_initialized();
         self.function(BodyType::Function);
         self.define_var(function_name_var as u8);
+    }
+
+    fn class_declaration(&mut self) {
+        self.consume(TokenType::Identifier, "Expected a class name name");
+        let name_const = self.identifier_const(self.previous.clone().as_ref().unwrap());
+        self.declare_var();
+
+        self.write_bytes([OpCode::Class as u8, name_const]);
+        self.define_var(name_const);
+
+        self.consume(TokenType::LeftBrace, "Expected '{' before class body");
+        self.consume(TokenType::RightBrace, "Expected '}' after class body");
     }
 
     fn synchronize(&mut self) {
@@ -391,6 +404,18 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     fn call(&mut self, _can_assign: bool) {
         let arg_count = self.args_list();
         self.write_bytes([OpCode::Call as u8, arg_count]);
+    }
+
+    fn dot(&mut self, _can_assign: bool) {
+        self.consume(TokenType::Identifier, "Expected property name after '.'.");
+        let name = self.identifier_const(&self.previous.clone().unwrap());
+
+        if _can_assign && self.match_current(TokenType::Asign) {
+            self.expression();
+            self.write_bytes([OpCode::SetProperty as u8, name]);
+        } else {
+            self.write_bytes([OpCode::GetProperty as u8, name]);
+        }
     }
 
     fn parse_precedence(&mut self, precedence: Precedence) {
@@ -784,6 +809,7 @@ impl<'a, W: std::io::Write> ParseRule<'a, W> {
         let and: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::and);
         let or: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::or);
         let call: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::call);
+        let dot: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::dot);
 
         match token_type {
             LeftParen => rule(grouping, call, Precedence::Call),
@@ -799,7 +825,7 @@ impl<'a, W: std::io::Write> ParseRule<'a, W> {
             LeftBrace => rule(None, None, Precedence::None),
             RightBrace => rule(None, None, Precedence::None),
             Comma => rule(None, None, Precedence::None),
-            Dot => rule(None, None, Precedence::None),
+            Dot => rule(None, dot, Precedence::Call),
             SemiColon => rule(None, None, Precedence::None),
             Asign => rule(None, None, Precedence::None),
 

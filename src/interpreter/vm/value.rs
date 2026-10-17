@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use super::object::Object;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy)]
 pub enum Value {
     Number(f64),
     Bool(bool),
@@ -20,6 +20,18 @@ impl Display for Value {
                 let o = unsafe { o.as_ref_unchecked() };
                 write!(f, "{}", o)
             },
+        }
+    }
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Nil, Value::Nil) => true,
+            (Value::Object(a), Value::Object(b)) => a == b || unsafe { (**a).data == (**b).data },
+            _ => false,
         }
     }
 }
@@ -61,6 +73,9 @@ impl Value {
         matches!(self, Self::Number(_))
     }
 
+    pub fn is_object(&self) -> bool {
+        matches!(self, Self::Object(_))
+    }
     pub fn is_string_object(&self) -> bool {
         match self {
             Self::Object(ptr) => unsafe { ptr.as_ref_unchecked().is_string() },
@@ -68,7 +83,7 @@ impl Value {
         }
     }
 
-    pub fn mark(&mut self, mut gray_stack: &mut Vec<*mut Object>) {
+    pub fn mark(&mut self, gray_stack: &mut Vec<*mut Object>) {
         if let Self::Object(ptr) = self {
             ptr.mark_ptr(gray_stack);
         }

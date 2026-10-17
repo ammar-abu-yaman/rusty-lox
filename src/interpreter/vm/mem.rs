@@ -62,6 +62,22 @@ impl MemoryManager {
         ptr
     }
 
+    pub fn allocate_class(&mut self, name: *mut Object) -> *mut Object {
+        let object = Object::class(name);
+        let ptr = unsafe { self.allocate_object(object) };
+        ptr
+    }
+
+    pub fn get_object_for_str(&mut self, str_ptr: StrPtr) -> Option<*mut Object> {
+        self.strings.get(&str_ptr).copied()
+    }
+
+    pub fn allocate_instance(&mut self, class: *mut Object) -> *mut Object {
+        let object = Object::instance(class);
+        let ptr = unsafe { self.allocate_object(object) };
+        ptr
+    }
+
     pub fn allocate_native_function(&mut self, native_fn: NativeFunction) -> *mut Object {
         return unsafe { self.allocate_object(Object::native(native_fn)) };
     }
@@ -116,13 +132,13 @@ impl MemoryManager {
             let mut curr = self.open_upvalues;
             while !curr.is_null() {
                 curr.mark_ptr(gray_stack);
-                curr = (*curr).next;
+                curr = (*curr).as_upvalue().next;
             }
         }
     }
 
     pub fn remove_unmarked_strings(&mut self) {
-        self.strings.retain(|_, v| unsafe { v.read().is_marked });
+        self.strings.retain(|_, v| unsafe { v.as_ref().unwrap().is_marked });
     }
 
     pub fn sweep(&mut self) {
@@ -130,7 +146,7 @@ impl MemoryManager {
         let mut current = self.objects;
         unsafe {
             while !current.is_null() {
-                if !(*current).is_marked {
+                if (*current).is_marked {
                     (*current).is_marked = false;
                     previous = current;
                     current = (*current).next;
@@ -142,6 +158,7 @@ impl MemoryManager {
                     } else {
                         self.objects = (*unreachable).next;
                     }
+                    self.bytes_allocated -= (*unreachable).get_size();
                     drop(Box::from_raw(unreachable));
                 }
             }
@@ -149,7 +166,8 @@ impl MemoryManager {
     }
 }
 
-struct StrPtr(*const str);
+#[derive(Debug, Clone, Copy)]
+pub struct StrPtr(pub *const str);
 
 impl Hash for StrPtr {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {

@@ -1,5 +1,6 @@
 use std::io::Write;
 
+pub mod class;
 mod compiler;
 pub mod instruction;
 pub mod log;
@@ -16,7 +17,10 @@ use result::{InterpreterError, InterpreterResult};
 use value::Value;
 
 use crate::{
-    interpreter::vm::object::{ObjClosure, Object, ObjectData},
+    interpreter::vm::{
+        class::ObjInstance,
+        object::{Object, ObjectData},
+    },
     scanner::Scanner,
 };
 
@@ -127,13 +131,7 @@ impl<W: Write> VirtualMachine<W> {
                 Instruction::Equal => {
                     let b = ctx.stack.pop().unwrap();
                     let a = ctx.stack.pop().unwrap();
-                    if matches!(a, Value::Object(_)) && matches!(b, Value::Object(_)) {
-                        let a = a.as_object();
-                        let b = b.as_object();
-                        ctx.stack.push(Value::Bool(a == b));
-                    } else {
-                        ctx.stack.push(Value::Bool(a == b));
-                    }
+                    ctx.stack.push(Value::Bool(a == b));
                 },
                 Instruction::Greater => self.binary_cmp_op(&mut ctx, |a, b| a > b)?,
                 Instruction::Less => self.binary_cmp_op(&mut ctx, |a, b| a < b)?,
@@ -237,6 +235,58 @@ impl<W: Write> VirtualMachine<W> {
                     self.close_upvalue(&mut ctx, stack_index);
                     ctx.stack.pop();
                 },
+                Instruction::Class { name: name_const } => {
+                    let name = ctx.frame().chunk().constants[name_const as usize].as_object_ptr();
+                    let class = self.mem.allocate_class(name);
+                    ctx.stack.push(Value::Object(class));
+                },
+                Instruction::GetProperty { name: name_const } => {
+                    let object = ctx.peek_stack(0).cloned().unwrap();
+                    if !object.is_object()
+                        || !matches!(
+                            object.as_object(),
+                            Object {
+                                data: ObjectData::Instance(_),
+                                ..
+                            }
+                        )
+                    {
+                        self.runtime_err(&mut ctx, &format!("Only instances have properties, got {object:?}"));
+                        return Err(InterpreterError::Runtime);
+                    }
+
+                    let name = unsafe { ctx.frame().chunk().constants[name_const as usize].as_object_ptr().as_ref_unchecked().as_str() };
+                    if let Some(value) = object.as_object().as_instance().get_property(name) {
+                        ctx.stack.pop();
+                        ctx.stack.push(value);
+                    } else {
+                        self.runtime_err(&mut ctx, &format!("Undefined property {}", name));
+                        return Err(InterpreterError::Runtime);
+                    }
+                },
+                Instruction::SetProperty { name: name_const } => {
+                    let mut object = ctx.peek_stack(1).cloned().unwrap();
+                    if !object.is_object()
+                        || !matches!(
+                            object.as_object(),
+                            Object {
+                                data: ObjectData::Instance(_),
+                                ..
+                            }
+                        )
+                    {
+                        self.runtime_err(&mut ctx, &format!("Only instances have properties, got {object:?}"));
+                        return Err(InterpreterError::Runtime);
+                    }
+                    let value = ctx.peek_stack(0).cloned().unwrap();
+                    let name = unsafe { ctx.frame().chunk().constants[name_const as usize].as_object_ptr().as_ref_unchecked().as_str() };
+                    object.as_mut_object().as_instance_mut().set_property(name, value);
+
+                    // clean up
+                    let value = ctx.stack.pop().unwrap();
+                    ctx.stack.pop();
+                    ctx.stack.push(value);
+                },
             }
         }
         Ok(())
@@ -293,6 +343,14 @@ impl<W: Write> VirtualMachine<W> {
                     let result = native_fn(&ctx.stack[&ctx.stack.len() - arg_count as usize..]);
                     ctx.pop_len((arg_count + 1).into());
                     ctx.stack.push(result);
+                    return true;
+                },
+                obj_class @ Object {
+                    data: ObjectData::Class(..), ..
+                } => {
+                    ctx.pop_len((arg_count + 1).into());
+                    let instance = Value::Object(self.mem.allocate_instance(std::ptr::from_mut(obj_class)));
+                    ctx.stack.push(instance);
                     return true;
                 },
                 _ => {},
@@ -490,6 +548,18 @@ impl<W: Write> VirtualMachine<W> {
             Instruction::CloseUpvalue => {
                 writeln!(self.writer, "OP_CLOSE_UPVALUE");
             },
+            Instruction::Class { name } => {
+                let value = &chunk.constants[*name as usize];
+                writeln!(self.writer, "{:<16} {:4} {}", "OP_CLASS", name, value);
+            },
+            Instruction::SetProperty { name } => {
+                let value = &chunk.constants[*name as usize];
+                writeln!(self.writer, "{:<16} {:4} {}", "OP_SET_PROPERTY", name, value);
+            },
+            Instruction::GetProperty { name } => {
+                let value = &chunk.constants[*name as usize];
+                writeln!(self.writer, "{:<16} {:4} {}", "OP_GET_PROPERTY", name, value);
+            },
         }
     }
 }
@@ -544,6 +614,16 @@ impl<T: Write> VirtualMachine<T> {
         println!("{obj:p} blaken {obj}");
 
         match &mut obj.data {
+            ObjectData::Class(class) => {
+                class.name.mark_ptr(gray_stack);
+            },
+            ObjectData::Instance(instance) => {
+                instance.class.mark_ptr(gray_stack);
+                for (name, field) in instance.fields.iter_mut() {
+                    self.mem.get_object_for_str(*name).unwrap().mark_ptr(gray_stack);
+                    field.mark(gray_stack);
+                }
+            },
             ObjectData::Upvalue(upvalue) => upvalue.closed.iter_mut().for_each(|c| c.mark(gray_stack)),
             ObjectData::Function(function) => {
                 function.name.mark_ptr(gray_stack);

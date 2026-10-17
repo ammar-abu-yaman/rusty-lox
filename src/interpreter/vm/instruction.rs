@@ -32,6 +32,9 @@ pub enum OpCode {
     GetUpvalue,
     SetUpvalue,
     CloseUpvalue,
+    Class,
+    SetProperty,
+    GetProperty,
 }
 
 impl From<OpCode> for u8 {
@@ -71,6 +74,9 @@ pub enum Instruction {
     GetUpvalue { index: u8 },
     SetUpvalue { index: u8 },
     CloseUpvalue,
+    Class { name: u8 },
+    SetProperty { name: u8 },
+    GetProperty { name: u8 },
 }
 
 impl Instruction {
@@ -158,6 +164,21 @@ impl Instruction {
                 Instruction::SetUpvalue { index }
             },
             OpCode::CloseUpvalue => Instruction::CloseUpvalue,
+            OpCode::Class => {
+                let name = iter.next()?;
+                offset += 1;
+                Instruction::Class { name }
+            },
+            OpCode::SetProperty => {
+                let name = iter.next()?;
+                offset += 1;
+                Instruction::SetProperty { name }
+            },
+            OpCode::GetProperty => {
+                let name = iter.next()?;
+                offset += 1;
+                Instruction::GetProperty { name }
+            },
         };
         Some((instruction, offset))
     }
