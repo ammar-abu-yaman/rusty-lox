@@ -35,6 +35,8 @@ pub enum OpCode {
     Class,
     SetProperty,
     GetProperty,
+    Method,
+    Invoke,
 }
 
 impl From<OpCode> for u8 {
@@ -77,6 +79,8 @@ pub enum Instruction {
     Class { name: u8 },
     SetProperty { name: u8 },
     GetProperty { name: u8 },
+    Method { name: u8 },
+    Invoke { name: u8, arg_count: u8 },
 }
 
 impl Instruction {
@@ -178,6 +182,17 @@ impl Instruction {
                 let name = iter.next()?;
                 offset += 1;
                 Instruction::GetProperty { name }
+            },
+            OpCode::Method => {
+                let name = iter.next()?;
+                offset += 1;
+                Instruction::Method { name }
+            },
+            OpCode::Invoke => {
+                let name = iter.next()?;
+                let arg_count = iter.next()?;
+                offset += 2;
+                Instruction::Invoke { name, arg_count }
             },
         };
         Some((instruction, offset))

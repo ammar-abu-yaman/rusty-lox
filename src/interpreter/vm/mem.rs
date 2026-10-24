@@ -78,6 +78,12 @@ impl MemoryManager {
         ptr
     }
 
+    pub fn allocate_bounded_method(&mut self, reciever: Value, closure: *mut Object) -> *mut Object {
+        let object = Object::bounded_method(reciever, closure);
+        let ptr = unsafe { self.allocate_object(object) };
+        ptr
+    }
+
     pub fn allocate_native_function(&mut self, native_fn: NativeFunction) -> *mut Object {
         return unsafe { self.allocate_object(Object::native(native_fn)) };
     }
@@ -168,6 +174,12 @@ impl MemoryManager {
 
 #[derive(Debug, Clone, Copy)]
 pub struct StrPtr(pub *const str);
+
+impl From<&str> for StrPtr {
+    fn from(string: &str) -> Self {
+        StrPtr(std::ptr::from_ref(string))
+    }
+}
 
 impl Hash for StrPtr {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {

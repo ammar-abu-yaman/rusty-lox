@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::{fmt::Display, panic};
 
-use super::class::{ObjClass, ObjInstance};
+use super::class::{ObjBoundedMethod, ObjClass, ObjInstance};
 use super::value::Value;
 use crate::interpreter::vm::Chunk;
 
@@ -20,6 +21,7 @@ pub enum ObjectData {
     Upvalue(ObjUpvalue),
     Class(ObjClass),
     Instance(ObjInstance),
+    BoundedMethod(ObjBoundedMethod),
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +72,7 @@ impl Object {
         Self {
             is_marked: false,
             next: std::ptr::null_mut(),
-            data: ObjectData::Class(ObjClass { name }),
+            data: ObjectData::Class(ObjClass { name, methods: HashMap::new() }),
         }
     }
 
@@ -126,6 +128,14 @@ impl Object {
                 class,
                 fields: std::collections::HashMap::new(),
             }),
+        }
+    }
+
+    pub fn bounded_method(reciever: Value, closure: *mut Object) -> Self {
+        Self {
+            is_marked: false,
+            next: std::ptr::null_mut(),
+            data: ObjectData::BoundedMethod(ObjBoundedMethod { reciever, closure }),
         }
     }
 }
@@ -223,12 +233,37 @@ impl Object {
         }
     }
 
+    pub fn as_bounded_method(&self) -> &ObjBoundedMethod {
+        match &self.data {
+            ObjectData::BoundedMethod(method) => method,
+            _ => panic!("Expected a bounded method, got {:?}", self),
+        }
+    }
+
+    pub fn as_bounded_method_mut(&mut self) -> &mut ObjBoundedMethod {
+        if !matches!(self.data, ObjectData::BoundedMethod { .. }) {
+            panic!("Expected a bounded method, got {:?}", self);
+        }
+        match &mut self.data {
+            ObjectData::BoundedMethod(method) => method,
+            _ => unreachable!(),
+        }
+    }
+
     pub fn is_string(&self) -> bool {
         matches!(self.data, ObjectData::String { .. })
     }
 
     pub fn is_function(&self) -> bool {
         matches!(self.data, ObjectData::Function { .. })
+    }
+
+    pub fn is_bounded_method(&self) -> bool {
+        matches!(self.data, ObjectData::BoundedMethod { .. })
+    }
+
+    pub fn is_instance(&self) -> bool {
+        matches!(self.data, ObjectData::Instance { .. })
     }
 
     pub fn mark(&mut self, gray_stack: &mut Vec<*mut Object>) {
@@ -258,8 +293,8 @@ impl Object {
                     + fun.chunk.constants.capacity() * std::mem::size_of::<Value>()
             },
             ObjectData::Closure(closure) => closure.upvalues.capacity() * std::mem::size_of::<*mut Object>(),
-            ObjectData::NativeFunction(_) | ObjectData::Upvalue(_) => 0,
-            ObjectData::Class(_) => 0,
+            ObjectData::NativeFunction(_) | ObjectData::Upvalue(_) | ObjectData::BoundedMethod(_) => 0,
+            ObjectData::Class(class) => class.methods.capacity() * std::mem::size_of::<(super::mem::StrPtr, Value)>(),
             ObjectData::Instance(instance) => instance.fields.capacity() * std::mem::size_of::<(super::mem::StrPtr, Value)>(),
         } + HEADER_SIZE;
     }
@@ -279,10 +314,11 @@ impl Display for Object {
             ObjectData::NativeFunction(_) => write!(f, "<native fn>"),
             ObjectData::Closure(ObjClosure { function, .. }) => unsafe { function.as_ref_unchecked().fmt(f) },
             ObjectData::Upvalue(_) => write!(f, "upvalue"),
-            ObjectData::Class(ObjClass { name }) => unsafe { write!(f, "<class {}>", name.as_ref_unchecked().as_str()) },
+            ObjectData::Class(ObjClass { name, .. }) => unsafe { write!(f, "<class {}>", name.as_ref_unchecked().as_str()) },
             ObjectData::Instance(instance) => unsafe {
                 write!(f, "{} instance", instance.class.as_ref_unchecked().as_class().name.as_ref_unchecked().as_str())
             },
+            ObjectData::BoundedMethod(ObjBoundedMethod { closure, .. }) => unsafe { closure.as_ref_unchecked().fmt(f) },
         }
     }
 }

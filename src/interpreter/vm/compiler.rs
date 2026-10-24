@@ -26,10 +26,12 @@ struct Stack<'a> {
     depth: i32,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum BodyType {
     Function,
+    Method,
     Script,
+    Initializer,
 }
 
 pub struct ByteCodeCompiler<'a, W: std::io::Write> {
@@ -41,17 +43,16 @@ pub struct ByteCodeCompiler<'a, W: std::io::Write> {
     previous: Option<Token<'a>>,
     current: Option<Token<'a>>,
     contexts: Vec<CompilationContext<'a>>,
+    class_contexts: Vec<ClassContext>,
 }
 
 impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     pub fn new(scanner: &'a Scanner, logger: &'a mut Logger<W>, mem: &'a mut MemoryManager) -> Self {
         let empty_string = mem.intern_string("");
-        let main_context = CompilationContext {
-            body_type: BodyType::Script,
-            function: unsafe { mem.allocate_object(Object::function(0, empty_string)) },
-            stack: Stack::default(),
-            upvalues: Vec::new(),
-        };
+        let main_context = CompilationContext::new(
+            BodyType::Script,
+            unsafe { mem.allocate_object(Object::function(0, empty_string)) },
+        );
 
         Self {
             scanner,
@@ -60,6 +61,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             has_error: false,
             panic_mode: false,
             contexts: vec![main_context],
+            class_contexts: vec![],
             previous: None,
             current: None,
         }
@@ -114,14 +116,24 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
     fn class_declaration(&mut self) {
         self.consume(TokenType::Identifier, "Expected a class name name");
+        let class_name = self.previous.clone().unwrap();
         let name_const = self.identifier_const(self.previous.clone().as_ref().unwrap());
         self.declare_var();
 
         self.write_bytes([OpCode::Class as u8, name_const]);
         self.define_var(name_const);
 
+        self.class_contexts.push(ClassContext {});
+        self.named_var(class_name, false);
         self.consume(TokenType::LeftBrace, "Expected '{' before class body");
+
+        while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
+            self.method();
+        }
+
+        self.emit_pop();
         self.consume(TokenType::RightBrace, "Expected '}' after class body");
+        self.class_contexts.pop();
     }
 
     fn synchronize(&mut self) {
@@ -178,6 +190,19 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         for Upvalue { is_local, index } in &context.upvalues {
             self.write_bytes([*is_local as u8, *index as u8]);
         }
+    }
+
+    fn method(&mut self) {
+        self.consume(TokenType::Identifier, "Expect method name.");
+        let identifier = self.identifier_const(self.previous.clone().as_ref().unwrap());
+
+        let body_type = match self.previous.as_ref().unwrap().lexeme {
+            "init" => BodyType::Initializer,
+            _ => BodyType::Method,
+        };
+        self.function(body_type);
+
+        self.write_bytes([OpCode::Method as u8, identifier]);
     }
 
     fn define_var(&mut self, global_var_index: u8) {
@@ -305,6 +330,9 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         if self.match_current(TokenType::SemiColon) {
             self.emit_return();
         } else {
+            if self.context().body_type == BodyType::Initializer {
+                self.error("Can't return a value from an initializer.");
+            }
             self.expression();
             self.consume(TokenType::SemiColon, "Expected ';' after expression");
             self.write_bytes([OpCode::Return]);
@@ -413,9 +441,20 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         if _can_assign && self.match_current(TokenType::Asign) {
             self.expression();
             self.write_bytes([OpCode::SetProperty as u8, name]);
+        } else if self.match_current(TokenType::LeftParen) {
+            let arg_count = self.args_list();
+            self.write_bytes([OpCode::Invoke as u8, name, arg_count]);
         } else {
             self.write_bytes([OpCode::GetProperty as u8, name]);
         }
+    }
+
+    fn this(&mut self, _can_assign: bool) {
+        if self.class_contexts.is_empty() {
+            self.error("Can't use 'this' outside of a class.");
+            return;
+        }
+        self.variable(false);
     }
 
     fn parse_precedence(&mut self, precedence: Precedence) {
@@ -510,7 +549,11 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     }
 
     fn emit_return(&mut self) {
-        self.write_bytes([OpCode::LoadNil, OpCode::Return]);
+        match self.context().body_type {
+            BodyType::Initializer => self.write_bytes([OpCode::GetLocal as u8, 0]),
+            _ => self.write_bytes([OpCode::LoadNil]),
+        }
+        self.write_bytes([OpCode::Return]);
     }
 }
 
@@ -810,6 +853,7 @@ impl<'a, W: std::io::Write> ParseRule<'a, W> {
         let or: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::or);
         let call: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::call);
         let dot: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::dot);
+        let this: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::this);
 
         match token_type {
             LeftParen => rule(grouping, call, Precedence::Call),
@@ -854,7 +898,7 @@ impl<'a, W: std::io::Write> ParseRule<'a, W> {
             Print => rule(None, None, Precedence::None),
             Return => rule(None, None, Precedence::None),
             Super => rule(None, None, Precedence::None),
-            This => rule(None, None, Precedence::None),
+            This => rule(this, None, Precedence::None),
             Var => rule(None, None, Precedence::None),
             While => rule(None, None, Precedence::None),
             Error => rule(None, None, Precedence::None),
@@ -885,13 +929,18 @@ impl<'a> CompilationContext<'a> {
             upvalues: Vec::new(),
         };
         context.stack.locals.push(Local {
-            token: Token::textual("", 0, 0),
+            token: match body_type {
+                BodyType::Function | BodyType::Script => Token::textual("", 0, 0),
+                _ => Token::textual("this", 0, 0),
+            },
             depth: 0,
             is_captured: false,
         });
         context
     }
 }
+
+struct ClassContext {}
 
 #[cfg(test)]
 mod tests {

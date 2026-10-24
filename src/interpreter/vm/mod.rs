@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
 
 pub mod class;
 mod compiler;
@@ -17,9 +17,14 @@ use result::{InterpreterError, InterpreterResult};
 use value::Value;
 
 use crate::{
-    interpreter::vm::{
-        class::ObjInstance,
-        object::{Object, ObjectData},
+    interpreter::{
+        tree_walker::instance,
+        vm::{
+            class::ObjClass,
+            mem::StrPtr,
+            object::{Object, ObjectData},
+        },
+        RuntimeError,
     },
     scanner::Scanner,
 };
@@ -259,8 +264,7 @@ impl<W: Write> VirtualMachine<W> {
                     if let Some(value) = object.as_object().as_instance().get_property(name) {
                         ctx.stack.pop();
                         ctx.stack.push(value);
-                    } else {
-                        self.runtime_err(&mut ctx, &format!("Undefined property {}", name));
+                    } else if !self.bind_method(&mut ctx, unsafe { object.as_object().as_instance().class.as_ref_unchecked().as_class() }, name) {
                         return Err(InterpreterError::Runtime);
                     }
                 },
@@ -286,6 +290,16 @@ impl<W: Write> VirtualMachine<W> {
                     let value = ctx.stack.pop().unwrap();
                     ctx.stack.pop();
                     ctx.stack.push(value);
+                },
+                Instruction::Method { name } => {
+                    let name_str = unsafe { ctx.frame().chunk().constants[name as usize].as_object_ptr().as_ref_unchecked().as_str() };
+                    self.define_method(&mut ctx, name_str);
+                },
+                Instruction::Invoke { name, arg_count } => {
+                    let method = unsafe { ctx.frame().chunk().constants[name as usize].as_object_ptr().as_ref_unchecked().as_str() };
+                    if !self.invoke(&mut ctx, method, arg_count) {
+                        return Err(InterpreterError::Runtime);
+                    }
                 },
             }
         }
@@ -333,8 +347,7 @@ impl<W: Write> VirtualMachine<W> {
             let obj = unsafe { &mut *obj };
             match obj {
                 Object {
-                    data: ObjectData::Function(..) | ObjectData::Closure(..),
-                    ..
+                    data: ObjectData::Closure(..), ..
                 } => return self.call(obj, ctx, arg_count),
                 Object {
                     data: ObjectData::NativeFunction(native_fn),
@@ -348,10 +361,22 @@ impl<W: Write> VirtualMachine<W> {
                 obj_class @ Object {
                     data: ObjectData::Class(..), ..
                 } => {
-                    ctx.pop_len((arg_count + 1).into());
                     let instance = Value::Object(self.mem.allocate_instance(std::ptr::from_mut(obj_class)));
-                    ctx.stack.push(instance);
+                    *ctx.peek_stack_mut(arg_count as usize).unwrap() = instance;
+                    if let Some(initializer) = obj_class.as_class_mut().methods.get_mut(&StrPtr("init")) {
+                        return self.call(initializer.as_mut_object(), ctx, arg_count);
+                    } else if arg_count != 0 {
+                        self.runtime_err(ctx, &format!("Expected 0 arguments but got {arg_count}."));
+                        return false;
+                    }
                     return true;
+                },
+                Object {
+                    data: ObjectData::BoundedMethod(..),
+                    ..
+                } => {
+                    *ctx.peek_stack_mut(arg_count as usize).unwrap() = obj.as_bounded_method().reciever.clone();
+                    return self.call(unsafe { obj.as_bounded_method().closure.as_mut_unchecked() }, ctx, arg_count);
                 },
                 _ => {},
             }
@@ -359,6 +384,13 @@ impl<W: Write> VirtualMachine<W> {
 
         self.runtime_err(ctx, "Can only call functions and classes.");
         return false;
+    }
+
+    fn define_method(&mut self, ctx: &mut RunContext, name: &str) {
+        let method = ctx.peek_stack(0).cloned().unwrap();
+        let mut class = ctx.peek_stack(1).cloned().unwrap();
+        class.as_mut_object().as_class_mut().methods.insert(StrPtr::from(name), method);
+        ctx.stack.pop();
     }
 
     fn call(&mut self, obj: &mut Object, ctx: &mut RunContext, arg_count: u8) -> bool {
@@ -378,6 +410,31 @@ impl<W: Write> VirtualMachine<W> {
         };
         ctx.frames.push(frame);
         return true;
+    }
+
+    fn invoke(&mut self, ctx: &mut RunContext, method: &str, arg_count: u8) -> bool {
+        let reciever = ctx.peek_stack(arg_count as usize).cloned().unwrap();
+        if !reciever.is_object() || !reciever.as_object().is_instance() {
+            self.runtime_err(ctx, "Only instances have methods.");
+            return false;
+        }
+        let instance = reciever.as_object_ptr();
+        if let Some(value) = unsafe { instance.as_ref_unchecked().as_instance().fields.get(&StrPtr::from(method)).cloned() } {
+            *ctx.peek_stack_mut(arg_count as usize).unwrap() = value;
+            return self.call_value(value, ctx, arg_count);
+        }
+        let class = unsafe { instance.as_ref_unchecked().as_instance().class };
+        return self.invoke_from_class(ctx, class, method, arg_count);
+    }
+
+    fn invoke_from_class(&mut self, ctx: &mut RunContext, class: *mut Object, method_name: &str, arg_count: u8) -> bool {
+        let method = unsafe { class.as_ref_unchecked().as_class().methods.get(&StrPtr::from(method_name)) };
+        if method.is_none() {
+            self.runtime_err(ctx, &format!("Undefined property '{method_name}'"));
+            return false;
+        }
+
+        return self.call(method.cloned().unwrap().as_mut_object(), ctx, arg_count);
     }
 
     fn define_native(&mut self, ctx: &mut RunContext, name: &str, native_fn: NativeFunction) {
@@ -429,6 +486,22 @@ impl<W: Write> VirtualMachine<W> {
                 self.mem.open_upvalues = self.mem.open_upvalues.as_ref_unchecked().as_upvalue().next;
             }
         }
+    }
+
+    fn bind_method(&mut self, ctx: &mut RunContext, class: &ObjClass, name: &str) -> bool {
+        return match class.methods.get(&StrPtr::from(name)) {
+            Some(method) => {
+                let reciever = ctx.peek_stack(0).cloned().unwrap();
+                let bounded = self.mem.allocate_bounded_method(reciever, method.as_object_ptr());
+                ctx.stack.pop();
+                ctx.stack.push(Value::Object(bounded));
+                true
+            },
+            None => {
+                self.runtime_err(ctx, &format!("Undefined property '{name}'."));
+                false
+            },
+        };
     }
 
     fn disassemble(&mut self, chunk: &Chunk, instruction: &Instruction, offset: usize, consumed: usize) {
@@ -560,6 +633,14 @@ impl<W: Write> VirtualMachine<W> {
                 let value = &chunk.constants[*name as usize];
                 writeln!(self.writer, "{:<16} {:4} {}", "OP_GET_PROPERTY", name, value);
             },
+            Instruction::Method { name } => {
+                let value = &chunk.constants[*name as usize];
+                writeln!(self.writer, "{:<16} {:4} {}", "METHOD", name, value);
+            },
+            Instruction::Invoke { name, arg_count } => {
+                let value = &chunk.constants[*name as usize];
+                writeln!(self.writer, "{:<16} ({} args) {:4} '{}'", "OP_INVOKE", arg_count, name, value);
+            },
         }
     }
 }
@@ -616,13 +697,11 @@ impl<T: Write> VirtualMachine<T> {
         match &mut obj.data {
             ObjectData::Class(class) => {
                 class.name.mark_ptr(gray_stack);
+                self.mark_value_map(&mut class.methods, gray_stack);
             },
             ObjectData::Instance(instance) => {
                 instance.class.mark_ptr(gray_stack);
-                for (name, field) in instance.fields.iter_mut() {
-                    self.mem.get_object_for_str(*name).unwrap().mark_ptr(gray_stack);
-                    field.mark(gray_stack);
-                }
+                self.mark_value_map(&mut instance.fields, gray_stack);
             },
             ObjectData::Upvalue(upvalue) => upvalue.closed.iter_mut().for_each(|c| c.mark(gray_stack)),
             ObjectData::Function(function) => {
@@ -637,7 +716,18 @@ impl<T: Write> VirtualMachine<T> {
                     upvalue.mark_ptr(gray_stack);
                 }
             },
+            ObjectData::BoundedMethod(bounded) => {
+                bounded.reciever.mark(gray_stack);
+                bounded.closure.mark_ptr(gray_stack);
+            },
             _ => {},
+        }
+    }
+
+    fn mark_value_map(&mut self, map: &mut HashMap<mem::StrPtr, Value>, gray_stack: &mut Vec<*mut Object>) {
+        for (name, field) in map.iter_mut() {
+            self.mem.get_object_for_str(*name).unwrap().mark_ptr(gray_stack);
+            field.mark(gray_stack);
         }
     }
 }
@@ -674,6 +764,11 @@ impl RunContext {
     #[inline(always)]
     pub fn peek_stack(&self, index: usize) -> Option<&Value> {
         self.stack.iter().rev().nth(index)
+    }
+
+    #[inline(always)]
+    pub fn peek_stack_mut(&mut self, index: usize) -> Option<&mut Value> {
+        self.stack.iter_mut().rev().nth(index)
     }
 
     #[inline(always)]
