@@ -746,7 +746,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
             }
         }
 
-        let index = &mut unsafe { self.contexts[context_index].function.as_mut_unchecked().as_function_mut().upvalue_count };
+        let index = unsafe { &mut self.contexts[context_index].function.as_mut_unchecked().as_function_mut().upvalue_count };
         if *index == u8::MAX.into() {
             self.error("Too many closure variables in function.");
             return 0;
