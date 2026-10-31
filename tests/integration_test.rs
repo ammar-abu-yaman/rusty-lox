@@ -38,7 +38,7 @@ fn test_lox_files() {
             // Run the binary directly from target/debug
             // The name comes from Cargo.toml: codecrafters-interpreter
             let output = Command::new("./target/debug/codecrafters-interpreter")
-                .args(["run", path.to_str().unwrap()])
+                .arg(path.to_str().unwrap())
                 .output()
                 .expect("Failed to execute command");
 
