@@ -9,11 +9,7 @@ use std::process::exit;
 
 mod cli;
 mod interpreter;
-mod log;
-mod parser;
-mod resolver;
 mod scanner;
-mod syntax;
 mod token;
 
 use cli::Cli;
