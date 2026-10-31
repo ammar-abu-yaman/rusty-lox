@@ -49,10 +49,7 @@ pub struct ByteCodeCompiler<'a, W: std::io::Write> {
 impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     pub fn new(scanner: &'a Scanner, logger: &'a mut Logger<W>, mem: &'a mut MemoryManager) -> Self {
         let empty_string = mem.intern_string("");
-        let main_context = CompilationContext::new(
-            BodyType::Script,
-            unsafe { mem.allocate_object(Object::function(0, empty_string)) },
-        );
+        let main_context = CompilationContext::new(BodyType::Script, unsafe { mem.allocate_object(Object::function(0, empty_string)) });
 
         Self {
             scanner,
@@ -123,7 +120,24 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.write_bytes([OpCode::Class as u8, name_const]);
         self.define_var(name_const);
 
-        self.class_contexts.push(ClassContext {});
+        self.class_contexts.push(ClassContext { has_super_class: false });
+
+        if self.match_current(TokenType::Less) {
+            self.consume(TokenType::Identifier, "Expect superclass name.");
+            self.variable(false);
+            if self.previous.clone().unwrap().lexeme == class_name.lexeme {
+                self.error("A class can't inherit from itself.");
+            }
+            let super_token = self.synthetic_token("super");
+            self.begin_scope();
+            self.add_local(super_token);
+            self.define_var(0);
+
+            self.named_var(class_name.clone(), false);
+            self.write_bytes([OpCode::Inherit]);
+            self.class_context_mut().has_super_class = true;
+        }
+
         self.named_var(class_name, false);
         self.consume(TokenType::LeftBrace, "Expected '{' before class body");
 
@@ -132,6 +146,11 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         }
 
         self.emit_pop();
+
+        if self.class_context_mut().has_super_class {
+            self.end_scope();
+        }
+
         self.consume(TokenType::RightBrace, "Expected '}' after class body");
         self.class_contexts.pop();
     }
@@ -457,6 +476,30 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.variable(false);
     }
 
+    fn super_(&mut self, _can_assign: bool) {
+        if self.class_contexts.is_empty() {
+            self.error("Can't use 'super' outside of a class.");
+        } else if !self.class_context().has_super_class {
+            self.error("Can't use 'super' in a class with no superclass.");
+        }
+
+        self.consume(TokenType::Dot, "Expect '.' after 'super'.");
+        self.consume(TokenType::Identifier, "Expect superclass method name.");
+        let name = self.identifier_const(&self.previous.clone().unwrap());
+
+        let this_token = self.synthetic_token("this");
+        let super_token = self.synthetic_token("super");
+        self.named_var(this_token, false);
+        if self.match_current(TokenType::LeftParen) {
+            let arg_count = self.args_list();
+            self.named_var(super_token, false);
+            self.write_bytes([OpCode::InvokeSuper as u8, name, arg_count]);
+        } else {
+            self.named_var(super_token, false);
+            self.write_bytes([OpCode::GetSuper as u8, name]);
+        }
+    }
+
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
         let rule = ParseRule::<W>::derive_rule(self.previous.as_ref().unwrap().token_type);
@@ -591,6 +634,10 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         }
     }
 
+    fn synthetic_token<'s>(&mut self, text: &'s str) -> Token<'s> {
+        Token::textual(text, 0, 0)
+    }
+
     fn emit_const(&mut self, value: Value) {
         let const_index = self.add_const(value);
         self.write_bytes([OpCode::LoadConst as u8, const_index as u8]);
@@ -717,6 +764,14 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
     fn context_mut(&mut self) -> &mut CompilationContext<'a> {
         self.contexts.last_mut().unwrap()
+    }
+
+    fn class_context(&self) -> &ClassContext {
+        self.class_contexts.last().unwrap()
+    }
+
+    fn class_context_mut(&mut self) -> &mut ClassContext {
+        self.class_contexts.last_mut().unwrap()
     }
 
     fn chunk(&self) -> &Chunk {
@@ -854,6 +909,7 @@ impl<'a, W: std::io::Write> ParseRule<'a, W> {
         let call: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::call);
         let dot: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::dot);
         let this: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::this);
+        let super_: Option<ParseFn<'a, W>> = Some(ByteCodeCompiler::super_);
 
         match token_type {
             LeftParen => rule(grouping, call, Precedence::Call),
@@ -897,7 +953,7 @@ impl<'a, W: std::io::Write> ParseRule<'a, W> {
             Fun => rule(None, None, Precedence::None),
             Print => rule(None, None, Precedence::None),
             Return => rule(None, None, Precedence::None),
-            Super => rule(None, None, Precedence::None),
+            Super => rule(super_, None, Precedence::None),
             This => rule(this, None, Precedence::None),
             Var => rule(None, None, Precedence::None),
             While => rule(None, None, Precedence::None),
@@ -940,7 +996,9 @@ impl<'a> CompilationContext<'a> {
     }
 }
 
-struct ClassContext {}
+struct ClassContext {
+    has_super_class: bool,
+}
 
 #[cfg(test)]
 mod tests {

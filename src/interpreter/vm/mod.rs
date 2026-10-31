@@ -17,14 +17,10 @@ use result::{InterpreterError, InterpreterResult};
 use value::Value;
 
 use crate::{
-    interpreter::{
-        tree_walker::instance,
-        vm::{
-            class::ObjClass,
-            mem::StrPtr,
-            object::{Object, ObjectData},
-        },
-        RuntimeError,
+    interpreter::vm::{
+        class::ObjClass,
+        mem::StrPtr,
+        object::{Object, ObjectData},
     },
     scanner::Scanner,
 };
@@ -298,6 +294,34 @@ impl<W: Write> VirtualMachine<W> {
                 Instruction::Invoke { name, arg_count } => {
                     let method = unsafe { ctx.frame().chunk().constants[name as usize].as_object_ptr().as_ref_unchecked().as_str() };
                     if !self.invoke(&mut ctx, method, arg_count) {
+                        return Err(InterpreterError::Runtime);
+                    }
+                },
+                Instruction::Inherit => {
+                    let mut superclass = ctx.peek_stack(1).cloned().unwrap();
+                    if !superclass.is_object() || !superclass.as_object().is_class() {
+                        self.runtime_err(&mut ctx, "Superclass must be a class.");
+                        return Err(InterpreterError::Runtime);
+                    }
+                    let subclass = ctx.peek_stack(0).unwrap().as_object_ptr();
+                    unsafe {
+                        let superclass_methods = superclass.as_mut_object().as_class().methods.iter();
+                        subclass.as_mut_unchecked().as_class_mut().methods.extend(superclass_methods);
+                    }
+
+                    ctx.stack.pop(); // subclass
+                },
+                Instruction::GetSuper { name: name_index } => {
+                    let name = unsafe { ctx.frame().chunk().constants[name_index as usize].as_object_ptr().as_ref_unchecked().as_str() };
+                    let superclass = ctx.stack.pop().unwrap();
+                    if !self.bind_method(&mut ctx, superclass.as_object().as_class(), name) {
+                        return Err(InterpreterError::Runtime);
+                    }
+                },
+                Instruction::InvokeSuper { name: name_index, arg_count } => {
+                    let method_name = unsafe { ctx.frame().chunk().constants[name_index as usize].as_object_ptr().as_ref_unchecked().as_str() };
+                    let superclass = ctx.stack.pop().unwrap();
+                    if !self.invoke_from_class(&mut ctx, superclass.as_object_ptr(), method_name, arg_count) {
                         return Err(InterpreterError::Runtime);
                     }
                 },
@@ -640,6 +664,17 @@ impl<W: Write> VirtualMachine<W> {
             Instruction::Invoke { name, arg_count } => {
                 let value = &chunk.constants[*name as usize];
                 writeln!(self.writer, "{:<16} ({} args) {:4} '{}'", "OP_INVOKE", arg_count, name, value);
+            },
+            Instruction::Inherit => {
+                writeln!(self.writer, "OP_INHERIT");
+            },
+            Instruction::GetSuper { name } => {
+                let value = &chunk.constants[*name as usize];
+                writeln!(self.writer, "{:<16} {:4} {}", "OP_GET_SUPER", name, value);
+            },
+            Instruction::InvokeSuper { name, arg_count } => {
+                let value = &chunk.constants[*name as usize];
+                writeln!(self.writer, "{:<16} ({} args) {:4} '{}'", "OP_SUPER_INVOKE", arg_count, name, value);
             },
         }
     }

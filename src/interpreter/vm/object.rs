@@ -266,6 +266,10 @@ impl Object {
         matches!(self.data, ObjectData::Instance { .. })
     }
 
+    pub fn is_class(&self) -> bool {
+        matches!(self.data, ObjectData::Class { .. })
+    }
+
     pub fn mark(&mut self, gray_stack: &mut Vec<*mut Object>) {
         #[cfg(feature = "debug-log-gc")]
         println!("{self:p} marking: {self:?}");

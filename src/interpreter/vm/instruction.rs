@@ -37,6 +37,9 @@ pub enum OpCode {
     GetProperty,
     Method,
     Invoke,
+    Inherit,
+    GetSuper,
+    InvokeSuper,
 }
 
 impl From<OpCode> for u8 {
@@ -81,6 +84,9 @@ pub enum Instruction {
     GetProperty { name: u8 },
     Method { name: u8 },
     Invoke { name: u8, arg_count: u8 },
+    Inherit,
+    GetSuper { name: u8 },
+    InvokeSuper { name: u8, arg_count: u8 },
 }
 
 impl Instruction {
@@ -193,6 +199,18 @@ impl Instruction {
                 let arg_count = iter.next()?;
                 offset += 2;
                 Instruction::Invoke { name, arg_count }
+            },
+            OpCode::Inherit => Instruction::Inherit,
+            OpCode::GetSuper => {
+                let name = iter.next()?;
+                offset += 1;
+                Instruction::GetSuper { name }
+            },
+            OpCode::InvokeSuper => {
+                let name = iter.next()?;
+                let arg_count = iter.next()?;
+                offset += 2;
+                Instruction::InvokeSuper { name, arg_count }
             },
         };
         Some((instruction, offset))
