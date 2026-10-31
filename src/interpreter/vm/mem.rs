@@ -268,7 +268,7 @@ mod tests {
         let mut mm = MemoryManager::new();
 
         let key = mm.intern_string("my_global");
-        let val = Value::Number(42.0);
+        let val = Value::number(42.0);
 
         mm.define_global(key, val);
         assert_eq!(mm.get_global(key), Some(val));
@@ -279,8 +279,8 @@ mod tests {
         let mut mm = MemoryManager::new();
 
         let key = mm.intern_string("a");
-        let val1 = Value::Number(1.0);
-        let val2 = Value::Number(2.0);
+        let val1 = Value::number(1.0);
+        let val2 = Value::number(2.0);
 
         mm.define_global(key, val1);
         let result = mm.set_global(key, val2);
@@ -293,7 +293,7 @@ mod tests {
     fn test_set_global_failure_if_not_exists() {
         let mut mm = MemoryManager::new();
         let key = mm.intern_string("a");
-        let val = Value::Number(1.0);
+        let val = Value::number(1.0);
 
         let result = mm.set_global(key, val);
         assert_eq!(result, false, "Should fail if variable has not been defined");

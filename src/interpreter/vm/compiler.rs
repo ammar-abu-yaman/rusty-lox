@@ -204,7 +204,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
         self.block_statement();
 
         let context = self.end_compilation();
-        self.emit_closure(Value::Object(context.function));
+        self.emit_closure(Value::object(context.function));
 
         for Upvalue { is_local, index } in &context.upvalues {
             self.write_bytes([*is_local as u8, *index as u8]);
@@ -371,7 +371,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     }
 
     fn number(&mut self, _can_assign: bool) {
-        let value = Value::Number(self.previous.as_ref().unwrap().literal.as_number());
+        let value = Value::number(self.previous.as_ref().unwrap().literal.as_number());
         self.emit_const(value);
     }
 
@@ -441,7 +441,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
     fn string(&mut self, _can_assign: bool) {
         let token_str = self.previous.as_ref().unwrap().literal.as_string();
         let str_object = self.mem.intern_string(token_str);
-        self.emit_const(Value::Object(str_object));
+        self.emit_const(Value::object(str_object));
     }
 
     fn variable(&mut self, can_assign: bool) {
@@ -549,7 +549,7 @@ impl<'a, W: std::io::Write> ByteCodeCompiler<'a, W> {
 
     fn identifier_const(&mut self, token: &Token<'a>) -> u8 {
         let name_obj = self.mem.intern_string(token.lexeme);
-        let name_val = Value::Object(name_obj);
+        let name_val = Value::object(name_obj);
         return self.add_const(name_val) as u8;
     }
 

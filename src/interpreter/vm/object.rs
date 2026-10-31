@@ -341,5 +341,5 @@ impl PartialEq for ObjectData {
 impl Eq for ObjectData {}
 
 pub fn native_clock(_args: &[Value]) -> Value {
-    return Value::Number(std::time::Instant::now().elapsed().as_secs_f64());
+    return Value::number(std::time::Instant::now().elapsed().as_secs_f64());
 }

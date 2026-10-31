@@ -71,7 +71,7 @@ impl<W: Write> VirtualMachine<W> {
             ip: 0,
             slots_offest: ctx.stack.len(),
         });
-        ctx.stack.push(Value::Object(closure));
+        ctx.stack.push(Value::object(closure));
 
         loop {
             #[cfg(feature = "debug-stress-gc")]
@@ -101,12 +101,12 @@ impl<W: Write> VirtualMachine<W> {
                     ctx.stack.push(value);
                 },
                 Instruction::Negate => {
-                    if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) {
+                    if !ctx.peek_stack(0).map_or(false, |v| v.is_number()) {
                         self.runtime_err(&mut ctx, "Operand must be a number.");
                         return Err(InterpreterError::Runtime);
                     }
                     let value = ctx.stack.pop().unwrap().as_number();
-                    let result = Value::Number(-value);
+                    let result = Value::number(-value);
                     ctx.stack.push(result);
                 },
                 Instruction::Add => {
@@ -122,17 +122,17 @@ impl<W: Write> VirtualMachine<W> {
                 Instruction::Subtract => self.binary_math_op(&mut ctx, |a, b| a - b)?,
                 Instruction::Multiply => self.binary_math_op(&mut ctx, |a, b| a * b)?,
                 Instruction::Divide => self.binary_math_op(&mut ctx, |a, b| a / b)?,
-                Instruction::LoadTrue => ctx.stack.push(Value::Bool(true)),
-                Instruction::LoadFalse => ctx.stack.push(Value::Bool(false)),
-                Instruction::LoadNil => ctx.stack.push(Value::Nil),
+                Instruction::LoadTrue => ctx.stack.push(Value::true_value()),
+                Instruction::LoadFalse => ctx.stack.push(Value::false_value()),
+                Instruction::LoadNil => ctx.stack.push(Value::nil_value()),
                 Instruction::Not => {
                     let value = ctx.stack.pop().unwrap();
-                    ctx.stack.push(Value::Bool(value.is_falsy()));
+                    ctx.stack.push(Value::bool(value.is_falsy()));
                 },
                 Instruction::Equal => {
                     let b = ctx.stack.pop().unwrap();
                     let a = ctx.stack.pop().unwrap();
-                    ctx.stack.push(Value::Bool(a == b));
+                    ctx.stack.push(Value::bool(a == b));
                 },
                 Instruction::Greater => self.binary_cmp_op(&mut ctx, |a, b| a > b)?,
                 Instruction::Less => self.binary_cmp_op(&mut ctx, |a, b| a < b)?,
@@ -208,7 +208,7 @@ impl<W: Write> VirtualMachine<W> {
                     let function = ctx.frame().chunk().constants[offset as usize].clone().as_object_ptr();
                     let upvalue_count = function.as_ref_unchecked().as_function().upvalue_count;
                     let closure = self.mem.allocate_closure(function, upvalue_count);
-                    ctx.stack.push(Value::Object(closure));
+                    ctx.stack.push(Value::object(closure));
                     for upvalue in closure.as_mut_unchecked().as_closure_mut().upvalues.iter_mut() {
                         let is_local = ctx.frame().chunk().code[ctx.frame().ip];
                         let index = ctx.frame().chunk().code[ctx.frame().ip + 1] as usize;
@@ -239,7 +239,7 @@ impl<W: Write> VirtualMachine<W> {
                 Instruction::Class { name: name_const } => {
                     let name = ctx.frame().chunk().constants[name_const as usize].as_object_ptr();
                     let class = self.mem.allocate_class(name);
-                    ctx.stack.push(Value::Object(class));
+                    ctx.stack.push(Value::object(class));
                 },
                 Instruction::GetProperty { name: name_const } => {
                     let object = ctx.peek_stack(0).cloned().unwrap();
@@ -332,14 +332,14 @@ impl<W: Write> VirtualMachine<W> {
 
     #[inline(always)]
     fn binary_math_op(&mut self, ctx: &mut RunContext, op: fn(f64, f64) -> f64) -> InterpreterResult<()> {
-        if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) || !matches!(ctx.peek_stack(1), Some(Value::Number(..))) {
+        if !ctx.peek_stack(0).map_or(false, |v| v.is_number()) || !ctx.peek_stack(1).map_or(false, |v| v.is_number()) {
             self.runtime_err(ctx, "Operand must be a number.");
             return Err(InterpreterError::Runtime);
         }
 
         let value2 = ctx.stack.pop().unwrap().as_number();
         let value1 = ctx.stack.pop().unwrap().as_number();
-        let result = Value::Number(op(value1, value2));
+        let result = Value::number(op(value1, value2));
         ctx.stack.push(result);
         Ok(())
     }
@@ -349,26 +349,26 @@ impl<W: Write> VirtualMachine<W> {
         let value1 = ctx.stack.pop().unwrap();
         let str1 = value1.as_object().as_str();
         let str2 = value2.as_object().as_str();
-        let result = Value::Object(self.mem.allocate_string(str1.to_owned() + str2));
+        let result = Value::object(self.mem.allocate_string(str1.to_owned() + str2));
         ctx.stack.push(result);
     }
 
     #[inline(always)]
     fn binary_cmp_op(&mut self, ctx: &mut RunContext, op: fn(f64, f64) -> bool) -> InterpreterResult<()> {
-        if !matches!(ctx.peek_stack(0), Some(Value::Number(..))) || !matches!(ctx.peek_stack(1), Some(Value::Number(..))) {
+        if !ctx.peek_stack(0).map_or(false, |v| v.is_number()) || !ctx.peek_stack(1).map_or(false, |v| v.is_number()) {
             self.runtime_err(ctx, "Operand must be a number.");
             return Err(InterpreterError::Runtime);
         }
         let value2 = ctx.stack.pop().unwrap().as_number();
         let value1 = ctx.stack.pop().unwrap().as_number();
-        let result = Value::Bool(op(value1, value2));
+        let result = Value::bool(op(value1, value2));
         ctx.stack.push(result);
         Ok(())
     }
 
     fn call_value(&mut self, value: Value, ctx: &mut RunContext, arg_count: u8) -> bool {
-        if let Value::Object(obj) = value {
-            let obj = unsafe { &mut *obj };
+        if value.is_object() {
+            let obj = unsafe { &mut *value.as_object_ptr() };
             match obj {
                 Object {
                     data: ObjectData::Closure(..), ..
@@ -385,7 +385,7 @@ impl<W: Write> VirtualMachine<W> {
                 obj_class @ Object {
                     data: ObjectData::Class(..), ..
                 } => {
-                    let instance = Value::Object(self.mem.allocate_instance(std::ptr::from_mut(obj_class)));
+                    let instance = Value::object(self.mem.allocate_instance(std::ptr::from_mut(obj_class)));
                     *ctx.peek_stack_mut(arg_count as usize).unwrap() = instance;
                     if let Some(initializer) = obj_class.as_class_mut().methods.get_mut(&StrPtr("init")) {
                         return self.call(initializer.as_mut_object(), ctx, arg_count);
@@ -462,8 +462,8 @@ impl<W: Write> VirtualMachine<W> {
     }
 
     fn define_native(&mut self, ctx: &mut RunContext, name: &str, native_fn: NativeFunction) {
-        ctx.stack.push(Value::Object(self.mem.intern_string(name)));
-        ctx.stack.push(Value::Object(self.mem.allocate_native_function(native_fn)));
+        ctx.stack.push(Value::object(self.mem.intern_string(name)));
+        ctx.stack.push(Value::object(self.mem.allocate_native_function(native_fn)));
         self.mem.define_global(ctx.stack[0].as_object_ptr(), ctx.stack[1]);
         ctx.stack.pop();
         ctx.stack.pop();
@@ -518,7 +518,7 @@ impl<W: Write> VirtualMachine<W> {
                 let reciever = ctx.peek_stack(0).cloned().unwrap();
                 let bounded = self.mem.allocate_bounded_method(reciever, method.as_object_ptr());
                 ctx.stack.pop();
-                ctx.stack.push(Value::Object(bounded));
+                ctx.stack.push(Value::object(bounded));
                 true
             },
             None => {
@@ -939,8 +939,8 @@ mod tests {
     #[test]
     fn test_arithmetic() {
         let mut chunk = Chunk::new();
-        chunk.constants.push(Value::Number(1.2));
-        chunk.constants.push(Value::Number(3.4));
+        chunk.constants.push(Value::number(1.2));
+        chunk.constants.push(Value::number(3.4));
 
         chunk.code.push(OpCode::LoadConst as u8);
         chunk.code.push(0);
@@ -959,7 +959,7 @@ mod tests {
     #[test]
     fn test_negate() {
         let mut chunk = Chunk::new();
-        chunk.constants.push(Value::Number(10.0));
+        chunk.constants.push(Value::number(10.0));
 
         chunk.code.push(OpCode::LoadConst as u8);
         chunk.code.push(0);
@@ -993,8 +993,8 @@ mod tests {
     #[test]
     fn test_comparison() {
         let mut chunk = Chunk::new();
-        chunk.constants.push(Value::Number(5.0));
-        chunk.constants.push(Value::Number(10.0));
+        chunk.constants.push(Value::number(5.0));
+        chunk.constants.push(Value::number(10.0));
 
         // 5 < 10
         chunk.code.push(OpCode::LoadConst as u8);
@@ -1026,9 +1026,9 @@ mod tests {
         let name_ptr = mm.intern_string("a");
 
         let mut chunk = Chunk::new();
-        chunk.constants.push(Value::Object(name_ptr));
-        chunk.constants.push(Value::Number(100.0));
-        chunk.constants.push(Value::Number(200.0));
+        chunk.constants.push(Value::object(name_ptr));
+        chunk.constants.push(Value::number(100.0));
+        chunk.constants.push(Value::number(200.0));
 
         // var a = 100;
         chunk.code.push(OpCode::LoadConst as u8);
@@ -1059,8 +1059,8 @@ mod tests {
     #[test]
     fn test_local_variables() {
         let mut chunk = Chunk::new();
-        chunk.constants.push(Value::Number(10.0));
-        chunk.constants.push(Value::Number(20.0));
+        chunk.constants.push(Value::number(10.0));
+        chunk.constants.push(Value::number(20.0));
 
         // push 10 (local 0)
         chunk.code.push(OpCode::LoadConst as u8);
@@ -1070,7 +1070,7 @@ mod tests {
         chunk.code.push(1);
 
         // set local 0 = 30 (manually push 30 first)
-        chunk.constants.push(Value::Number(30.0));
+        chunk.constants.push(Value::number(30.0));
         chunk.code.push(OpCode::LoadConst as u8);
         chunk.code.push(2);
         chunk.code.push(OpCode::SetLocal as u8);
@@ -1098,8 +1098,8 @@ mod tests {
     #[test]
     fn test_blocks_and_scopes() {
         let mut chunk = Chunk::new();
-        chunk.constants.push(Value::Number(1.0));
-        chunk.constants.push(Value::Number(2.0));
+        chunk.constants.push(Value::number(1.0));
+        chunk.constants.push(Value::number(2.0));
 
         // Outer scope: var a = 1
         chunk.code.push(OpCode::LoadConst as u8);
