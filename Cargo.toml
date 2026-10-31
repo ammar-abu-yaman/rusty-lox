@@ -18,3 +18,5 @@ clap = { version = "4.6.1", features = ["derive"] }
 integration-tests = []
 debug-stress-gc = []
 debug-log-gc = []
+nan-boxing = []
+nan-boxig = []
