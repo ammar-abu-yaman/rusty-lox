@@ -1,10 +1,8 @@
 #![feature(arbitrary_self_types_pointers)]
-#[macro_use]
-extern crate num_derive;
 
 use clap::Parser;
-use std::fs::File;
-use std::io::Read;
+use std::fs;
+use std::io::{self, Write};
 use std::process::exit;
 
 mod cli;
@@ -13,38 +11,54 @@ mod scanner;
 mod token;
 
 use cli::Cli;
-
-use crate::interpreter::vm::VirtualMachine;
+use interpreter::vm::result::InterpreterError;
+use interpreter::vm::VirtualMachine;
 
 fn main() {
-    let raw_args: Vec<String> = std::env::args().collect();
-    let args = Cli::parse_from(&raw_args);
-    if raw_args.len() <= 1 {
-        repl();
-    } else if let Some(filename) = &args.filename {
-        exec_file(filename);
-    } else {
-        eprintln!("Usage: clox [path]");
-        exit(64);
+    let args = Cli::parse();
+    match &args.filename {
+        Some(filename) => exec_file(filename, args.debug),
+        None => repl(args.debug),
     }
 }
 
-fn repl() {
-    let mut vm = VirtualMachine::new(false, std::io::stdout());
+fn repl(debug: bool) {
+    let mut vm = VirtualMachine::new(debug, io::stdout());
+    let mut line = String::new();
     loop {
-        let mut line = String::new();
-        std::io::stdin().read_line(&mut line).unwrap();
-        vm.interpret(&line);
+        print!("> ");
+        let _ = io::stdout().flush();
+        line.clear();
+        match io::stdin().read_line(&mut line) {
+            Ok(0) => {
+                println!();
+                break;
+            },
+            Ok(_) => {
+                let _ = vm.interpret(&line);
+            },
+            Err(err) => {
+                eprintln!("Failed to read line: {}", err);
+                exit(74);
+            },
+        }
     }
 }
-fn exec_file(filename: &str) {
-    let mut vm = VirtualMachine::new(false, std::io::stdout());
-    let mut file = File::open(filename);
-    if let Err(file) = file {
-        eprintln!("Failed to open file: {}", file);
-        exit(74);
+
+fn exec_file(filename: &str, debug: bool) {
+    let source = match fs::read_to_string(filename) {
+        Ok(source) => source,
+        Err(err) => {
+            eprintln!("Failed to read file '{}': {}", filename, err);
+            exit(74);
+        },
+    };
+
+    let mut vm = VirtualMachine::new(debug, io::stdout());
+    if let Err(err) = vm.interpret(&source) {
+        match err {
+            InterpreterError::Compile => exit(65),
+            InterpreterError::Runtime => exit(70),
+        }
     }
-    let mut source = String::new();
-    file.unwrap().read_to_string(&mut source).unwrap();
-    vm.interpret(&source);
 }
